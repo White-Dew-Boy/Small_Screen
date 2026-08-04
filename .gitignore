@@ -76,3 +76,13 @@ Desktop.ini
 *.workspace # General workspace files, can be from various tools
 *.suo       # Visual Studio Solution User Options
 *.sln.docstates # Visual Studio
+
+# OpenCode / AI agent artifacts
+.omo/
+dependencies.lock
+
+# Reference demos and assets
+Demo_ESP32/
+photos/
+photo/
+main/photo.h
