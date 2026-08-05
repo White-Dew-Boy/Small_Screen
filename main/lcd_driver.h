@@ -1,6 +1,8 @@
 #pragma once
 
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_io.h"
+#include <stdint.h>
+#include "esp_err.h"
 
-esp_err_t lcd_driver_init(esp_lcd_panel_handle_t *ret_panel, esp_lcd_panel_io_handle_t *ret_io);
+esp_err_t lcd_driver_init(void);
+void lcd_draw_bitmap(uint16_t *pixels, int x, int y, int w, int h);
+void lcd_lvgl_init(void);
