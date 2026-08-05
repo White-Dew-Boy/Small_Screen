@@ -86,3 +86,8 @@ Demo_ESP32/
 photos/
 photo/
 main/photo.h
+
+# Source images and conversion tools
+figures/
+tools/
+materials/

@@ -3,7 +3,7 @@
   "idf.openOcdConfigs": [
     "board/esp32s3-builtin.cfg"
   ],
-  "idf.portWin": "detect",
+  "idf.portWin": "COM3",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32s3"
   },
@@ -12,5 +12,6 @@
     "--background-index",
     "--query-driver=**",
     "--compile-commands-dir=d:\\Projects\\ESP32_Projects\\Small_Screen\\build"
-  ]
+  ],
+  "idf.flashType": "UART"
 }
