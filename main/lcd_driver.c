@@ -15,7 +15,7 @@
 #define LCD_MISO   41
 #define LCD_SCLK   39
 #define LCD_CS     21
-#define LCD_DC     48
+#define LCD_DC     45
 #define LCD_RST    47
 #define LCD_BL     40
 #define LCD_H_RES  240
