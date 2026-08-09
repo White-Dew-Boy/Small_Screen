@@ -58,7 +58,9 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Touch demo ready — tap the button or drag the slider");
 
-    /* Start LVGL handler in its own task, then exit app_main */
-    xTaskCreate(lvgl_task, "lvgl", 4096, NULL, 1, NULL);
+    /* Start LVGL handler in its own task, then exit app_main.
+     * Stack: LVGL v9 rendering (refr_obj_and_children) is deep-recursive,
+     * 8 KB minimum, 16 KB for safety with multiple widgets. */
+    xTaskCreate(lvgl_task, "lvgl", 8192, NULL, 1, NULL);
     vTaskDelete(NULL);
 }

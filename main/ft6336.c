@@ -43,9 +43,9 @@ static void hardware_reset(void)
     gpio_set_level(FT6336_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(20));
     gpio_set_level(FT6336_RST, 0);
-    vTaskDelay(pdMS_TO_TICKS(20));
+    vTaskDelay(pdMS_TO_TICKS(50));
     gpio_set_level(FT6336_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(500));   /* wait for chip boot */
+    vTaskDelay(pdMS_TO_TICKS(800));
 }
 
 /*============================================================================
@@ -104,9 +104,19 @@ esp_err_t ft6336_init(void)
         return ret;
     }
 
-    /* ---- Chip ID verification ---- */
+    /* ---- Chip ID verification (retry up to 3 times) ---- */
     uint8_t chip_id = 0;
-    ret = i2c_read_reg(FT6336_REG_FOCALTECH_ID, &chip_id, 1);
+    ret = ESP_FAIL;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+        ret = i2c_read_reg(FT6336_REG_FOCALTECH_ID, &chip_id, 1);
+        if (ret == ESP_OK && chip_id == 0x11) {
+            break;
+        }
+        ESP_LOGW(TAG, "Chip probe attempt %d: ret=%d, id=0x%02x", attempt + 1, ret, chip_id);
+    }
     if (ret != ESP_OK || chip_id != 0x11) {
         ESP_LOGE(TAG, "FT6336 not found (chip_id=0x%02x, ret=%d)", chip_id, ret);
         return ESP_ERR_NOT_FOUND;
