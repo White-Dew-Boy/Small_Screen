@@ -11,11 +11,9 @@ static const char *TAG = "app_main";
  *----------------------------------------------------------------------------*/
 static void lvgl_task(void *arg)
 {
-    uint32_t last_tick = xTaskGetTickCount();
-
     while (1) {
         lv_timer_handler();
-        vTaskDelayUntil(&last_tick, pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
