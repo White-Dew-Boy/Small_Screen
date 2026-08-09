@@ -6,12 +6,30 @@
 
 static const char *TAG = "app_main";
 
-/* LVGL observer callback to update coord label on click */
+/*----------------------------------------------------------------------------
+ * LVGL handler task — runs lv_timer_handler() at 5 ms interval
+ *----------------------------------------------------------------------------*/
+static void lvgl_task(void *arg)
+{
+    uint32_t last_tick = xTaskGetTickCount();
+
+    while (1) {
+        lv_timer_handler();
+        vTaskDelayUntil(&last_tick, pdMS_TO_TICKS(5));
+    }
+}
+
+/*----------------------------------------------------------------------------
+ * Event callbacks
+ *----------------------------------------------------------------------------*/
 static void btn_clicked_cb(lv_event_t *e)
 {
     ESP_LOGI(TAG, "Touch button pressed!");
 }
 
+/*----------------------------------------------------------------------------
+ * Application entry
+ *----------------------------------------------------------------------------*/
 void app_main(void)
 {
     lcd_lvgl_init();
@@ -40,8 +58,7 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Touch demo ready — tap the button or drag the slider");
 
-    while (1) {
-        lv_timer_handler();
-        vTaskDelay(pdMS_TO_TICKS(5));
-    }
+    /* Start LVGL handler in its own task, then exit app_main */
+    xTaskCreate(lvgl_task, "lvgl", 4096, NULL, 1, NULL);
+    vTaskDelete(NULL);
 }
