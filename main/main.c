@@ -65,14 +65,16 @@ void app_main(void)
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        ESP_LOGI(TAG, "Touch INT (#%lu)", (unsigned long)touch_event_count);
-
         ft6336_touch_data_t touch;
         ft6336_read(&touch);
 
         if (touch.num_touches > 0) {
             int16_t tx = LCD_W - 1 - touch.points[0].x;
             int16_t ty = LCD_H - 1 - touch.points[0].y;
+
+            ESP_LOGI(TAG, "INT #%lu  raw=(%d,%d)  tx=%d ty=%d",
+                     (unsigned long)touch_event_count,
+                     touch.points[0].x, touch.points[0].y, tx, ty);
 
             if (tx != last_tx || ty != last_ty) {
                 if (last_tx >= 0) {
@@ -89,6 +91,7 @@ void app_main(void)
 
             vTaskDelay(pdMS_TO_TICKS(2));
         } else {
+            ESP_LOGI(TAG, "INT #%lu  released", (unsigned long)touch_event_count);
             if (last_tx >= 0) {
                 fill_rect(last_tx - 20, last_ty - 2, 40, 4, 0x0000);
                 fill_rect(last_tx - 2, last_ty - 20, 4, 40, 0x0000);
