@@ -1,123 +1,50 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/gpio.h"
 #include "lcd_driver.h"
 #include "ft6336.h"
 
-#define LCD_W  240
-#define LCD_H  320
-
 static const char *TAG = "app_main";
-static uint16_t *fb;
-static TaskHandle_t touch_task;
-
-static void fill_rect(int x, int y, int w, int h, uint16_t color)
-{
-    int x1 = x < 0 ? 0 : x;
-    int y1 = y < 0 ? 0 : y;
-    int x2 = x + w > LCD_W ? LCD_W : x + w;
-    int y2 = y + h > LCD_H ? LCD_H : y + h;
-    for (int row = y1; row < y2; row++) {
-        for (int col = x1; col < x2; col++) {
-            fb[row * LCD_W + col] = color;
-        }
-    }
-}
-
-static uint32_t touch_event_count;
-
-static void IRAM_ATTR touch_isr(void *arg)
-{
-    touch_event_count++;
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    vTaskNotifyGiveFromISR(touch_task, &xHigherPriorityTaskWoken);
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-}
 
 void app_main(void)
 {
-    fb = calloc(1, LCD_W * LCD_H * sizeof(uint16_t));
-    assert(fb);
-
-    lcd_driver_init();
-    lcd_draw_bitmap(fb, 0, 0, LCD_W, LCD_H);
-
+    lcd_init();
     ft6336_init();
+    ESP_LOGI(TAG, "Ready");
 
-    gpio_config_t int_cfg = {
-        .pin_bit_mask = BIT64(FT6336_INT),
-        .mode         = GPIO_MODE_INPUT,
-        .pull_up_en   = GPIO_PULLUP_ENABLE,
-        .intr_type    = GPIO_INTR_NEGEDGE,
-    };
-    gpio_config(&int_cfg);
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(FT6336_INT, touch_isr, NULL);
-
-    ft6336_enter_monitor();
-
-    touch_task = xTaskGetCurrentTaskHandle();
-    ESP_LOGI(TAG, "Waiting for touch (monitor mode)...");
-
-    int16_t last_tx = -1, last_ty = -1;
+    int16_t last_cx = -1, last_cy = -1;
 
     while (1) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        ft6336_point_t pt;
+        if (!ft6336_wait_touch(&pt)) continue;
 
-        vTaskDelay(pdMS_TO_TICKS(15));
+        int16_t tx = 239 - pt.x;
+        int16_t ty = 319 - pt.y;
 
-        ft6336_touch_data_t touch;
-        int retry = 3;
-        do {
+        while (1) {
+            ft6336_touch_data_t touch;
             ft6336_read(&touch);
-            if (touch.num_touches > 0) break;
-            vTaskDelay(pdMS_TO_TICKS(5));
-        } while (--retry > 0);
 
-        if (touch.num_touches > 0) {
-            int16_t tx = LCD_W - 1 - touch.points[0].x;
-            int16_t ty = LCD_H - 1 - touch.points[0].y;
+            if (touch.num_touches > 0) {
+                tx = 239 - touch.points[0].x;
+                ty = 319 - touch.points[0].y;
 
-            ESP_LOGI(TAG, "INT #%lu  raw=(%d,%d)  tx=%d ty=%d",
-                     (unsigned long)touch_event_count,
-                     touch.points[0].x, touch.points[0].y, tx, ty);
-
-            if (tx != last_tx || ty != last_ty) {
-                int x0_new = tx - 20, y0_new = ty - 20;
-                int x0 = x0_new, y0 = y0_new, ww = 40, hh = 40;
-
-                if (last_tx >= 0) {
-                    int x0_old = last_tx - 20, y0_old = last_ty - 20;
-                    fill_rect(last_tx - 20, last_ty - 2, 40, 4, 0x0000);
-                    fill_rect(last_tx - 2, last_ty - 20, 4, 40, 0x0000);
-
-                    int x1 = x0_old < x0_new ? x0_old : x0_new;
-                    int y1 = y0_old < y0_new ? y0_old : y0_new;
-                    int x2 = (x0_old + 40 > x0_new + 40 ? x0_old + 40 : x0_new + 40);
-                    int y2 = (y0_old + 40 > y0_new + 40 ? y0_old + 40 : y0_new + 40);
-                    x0 = x1; y0 = y1; ww = x2 - x1; hh = y2 - y1;
+                lcd_move_cross(last_cx, last_cy, tx, ty);
+                last_cx = tx;
+                last_cy = ty;
+            } else {
+                static int zero_count;
+                if (++zero_count >= 5) {
+                    zero_count = 0;
+                    break;
                 }
-
-                fill_rect(tx - 20, ty - 2, 40, 4, 0xF800);
-                fill_rect(tx - 2, ty - 20, 4, 40, 0xF800);
-                lcd_draw_bitmap(fb, x0, y0, ww, hh);
-                last_tx = tx;
-                last_ty = ty;
             }
 
-            vTaskDelay(pdMS_TO_TICKS(2));
-        } else {
-            ESP_LOGI(TAG, "INT #%lu  released", (unsigned long)touch_event_count);
-            if (last_tx >= 0) {
-                int x0 = last_tx - 20, y0 = last_ty - 20;
-                fill_rect(last_tx - 20, last_ty - 2, 40, 4, 0x0000);
-                fill_rect(last_tx - 2, last_ty - 20, 4, 40, 0x0000);
-                lcd_draw_bitmap(fb, x0, y0, 40, 40);
-                last_tx = -1;
-                last_ty = -1;
-            }
-            ft6336_enter_monitor();
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
+
+        lcd_clear_cross(last_cx, last_cy);
+        last_cx = last_cy = -1;
+        ft6336_enter_monitor();
     }
 }

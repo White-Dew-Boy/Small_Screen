@@ -100,19 +100,103 @@ esp_err_t lcd_driver_init(void)
     return ESP_OK;
 }
 
-void lcd_draw_bitmap(uint16_t *pixels, int x, int y, int w, int h)
+static uint16_t *fb;
+
+static void fill_rect(int x, int y, int w, int h, uint16_t color)
+{
+    int x1 = x < 0 ? 0 : x;
+    int y1 = y < 0 ? 0 : y;
+    int x2 = x + w > LCD_H_RES ? LCD_H_RES : x + w;
+    int y2 = y + h > LCD_V_RES ? LCD_V_RES : y + h;
+    for (int row = y1; row < y2; row++)
+        for (int col = x1; col < x2; col++)
+            fb[row * LCD_H_RES + col] = color;
+}
+
+static void flush_rect(int x, int y, int w, int h)
 {
     int count = w * h;
     uint16_t *tmp = malloc(count * sizeof(uint16_t));
     if (!tmp) return;
-
-    for (int row = 0; row < h; row++) {
-        memcpy(&tmp[row * w],
-               &pixels[(y + row) * LCD_H_RES + x],
-               w * sizeof(uint16_t));
-    }
-
+    for (int row = 0; row < h; row++)
+        memcpy(&tmp[row * w], &fb[(y + row) * LCD_H_RES + x], w * sizeof(uint16_t));
     gb_swap_buf(tmp, count);
     esp_lcd_panel_draw_bitmap(panel_handle, x, y, x + w, y + h, tmp);
     free(tmp);
+}
+
+esp_err_t lcd_init(void)
+{
+    esp_err_t ret = lcd_driver_init();
+    if (ret != ESP_OK) return ret;
+
+    fb = calloc(1, LCD_H_RES * LCD_V_RES * sizeof(uint16_t));
+    assert(fb);
+    flush_rect(0, 0, LCD_H_RES, LCD_V_RES);
+    return ESP_OK;
+}
+
+void lcd_fill_screen(uint16_t color)
+{
+    for (int i = 0; i < LCD_H_RES * LCD_V_RES; i++) fb[i] = color;
+    flush_rect(0, 0, LCD_H_RES, LCD_V_RES);
+}
+
+void lcd_draw_cross(int16_t cx, int16_t cy, uint16_t color)
+{
+    if (cx < 20) cx = 20;
+    if (cx > LCD_H_RES - 21) cx = LCD_H_RES - 21;
+    if (cy < 20) cy = 20;
+    if (cy > LCD_V_RES - 21) cy = LCD_V_RES - 21;
+
+    fill_rect(cx - 20, cy - 2, 40, 4, color);
+    fill_rect(cx - 2, cy - 20, 4, 40, color);
+    flush_rect(cx - 20, cy - 20, 40, 40);
+}
+
+void lcd_move_cross(int16_t old_cx, int16_t old_cy,
+                    int16_t new_cx, int16_t new_cy)
+{
+    if (new_cx < 20) new_cx = 20;
+    if (new_cx > LCD_H_RES - 21) new_cx = LCD_H_RES - 21;
+    if (new_cy < 20) new_cy = 20;
+    if (new_cy > LCD_V_RES - 21) new_cy = LCD_V_RES - 21;
+
+    int nx0 = new_cx - 20, ny0 = new_cy - 20;
+
+    if (old_cx >= 0) {
+        if (old_cx < 20) old_cx = 20;
+        if (old_cx > LCD_H_RES - 21) old_cx = LCD_H_RES - 21;
+        if (old_cy < 20) old_cy = 20;
+        if (old_cy > LCD_V_RES - 21) old_cy = LCD_V_RES - 21;
+
+        int ox0 = old_cx - 20, oy0 = old_cy - 20;
+        fill_rect(old_cx - 20, old_cy - 2, 40, 4, 0x0000);
+        fill_rect(old_cx - 2, old_cy - 20, 4, 40, 0x0000);
+
+        int x1 = ox0 < nx0 ? ox0 : nx0;
+        int y1 = oy0 < ny0 ? oy0 : ny0;
+        int x2 = ox0 + 40 > nx0 + 40 ? ox0 + 40 : nx0 + 40;
+        int y2 = oy0 + 40 > ny0 + 40 ? oy0 + 40 : ny0 + 40;
+
+        fill_rect(new_cx - 20, new_cy - 2, 40, 4, 0xF800);
+        fill_rect(new_cx - 2, new_cy - 20, 4, 40, 0xF800);
+        flush_rect(x1, y1, x2 - x1, y2 - y1);
+    } else {
+        fill_rect(new_cx - 20, new_cy - 2, 40, 4, 0xF800);
+        fill_rect(new_cx - 2, new_cy - 20, 4, 40, 0xF800);
+        flush_rect(nx0, ny0, 40, 40);
+    }
+}
+
+void lcd_clear_cross(int16_t cx, int16_t cy)
+{
+    if (cx < 20) cx = 20;
+    if (cx > LCD_H_RES - 21) cx = LCD_H_RES - 21;
+    if (cy < 20) cy = 20;
+    if (cy > LCD_V_RES - 21) cy = LCD_V_RES - 21;
+
+    fill_rect(cx - 20, cy - 2, 40, 4, 0x0000);
+    fill_rect(cx - 2, cy - 20, 4, 40, 0x0000);
+    flush_rect(cx - 20, cy - 20, 40, 40);
 }

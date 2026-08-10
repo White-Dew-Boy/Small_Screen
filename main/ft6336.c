@@ -10,6 +10,14 @@ static const char *TAG = "ft6336";
 
 static i2c_master_bus_handle_t bus_handle;
 static i2c_master_dev_handle_t  dev_handle;
+static TaskHandle_t touch_task_handle;
+
+static void IRAM_ATTR touch_isr(void *arg)
+{
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    vTaskNotifyGiveFromISR(touch_task_handle, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
 
 static esp_err_t i2c_read_reg(uint8_t reg, uint8_t *data, size_t len)
 {
@@ -105,6 +113,21 @@ esp_err_t ft6336_init(void)
 
     ESP_LOGI(TAG, "FT6336G initialized (I2C addr=0x%02x, chip_id=0x%02x)",
              FT6336_I2C_ADDR, chip_id);
+
+    touch_task_handle = xTaskGetCurrentTaskHandle();
+
+    gpio_config_t int_cfg = {
+        .pin_bit_mask = BIT64(FT6336_INT),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .intr_type    = GPIO_INTR_NEGEDGE,
+    };
+    gpio_config(&int_cfg);
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(FT6336_INT, touch_isr, NULL);
+
+    ft6336_enter_monitor();
+
     return ESP_OK;
 }
 
@@ -146,4 +169,26 @@ void ft6336_set_mode(uint8_t mode)
 void ft6336_enter_monitor(void)
 {
     ft6336_set_mode(FT6336_MODE_MONITOR);
+}
+
+bool ft6336_wait_touch(ft6336_point_t *pt)
+{
+    while (1) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        vTaskDelay(pdMS_TO_TICKS(15));
+
+        ft6336_touch_data_t touch;
+        int retry = 3;
+        do {
+            ft6336_read(&touch);
+            if (touch.num_touches > 0) break;
+            vTaskDelay(pdMS_TO_TICKS(5));
+        } while (--retry > 0);
+
+        if (touch.num_touches > 0) {
+            pt->x = touch.points[0].x;
+            pt->y = touch.points[0].y;
+            return true;
+        }
+    }
 }

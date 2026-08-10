@@ -78,3 +78,5 @@ void ft6336_read(ft6336_touch_data_t *data);
 void ft6336_set_mode(uint8_t mode);
 
 void ft6336_enter_monitor(void);
+
+bool ft6336_wait_touch(ft6336_point_t *pt);
