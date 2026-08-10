@@ -118,14 +118,26 @@ esp_err_t ft6336_init(void)
 
 void ft6336_read(ft6336_touch_data_t *data)
 {
+    static uint32_t idle_count = 0;
     data->num_touches = 0;
 
     uint8_t status;
-    if (i2c_read_reg(FT6336_REG_TD_STATUS, &status, 1) != ESP_OK) {
+    esp_err_t ret = i2c_read_reg(FT6336_REG_TD_STATUS, &status, 1);
+    if (ret != ESP_OK) {
+        if (++idle_count % 100 == 0) {
+            ESP_LOGW(TAG, "I2C read TD_STATUS failed: %d", ret);
+        }
         return;
     }
 
     uint8_t touches = status & 0x0F;
+
+    if (++idle_count % 100 == 0) {
+        uint8_t mode = 0;
+        i2c_read_reg(FT6336_REG_G_MODE, &mode, 1);
+        ESP_LOGI(TAG, "Idle: TD_STATUS=0x%02x G_MODE=0x%02x", status, mode);
+    }
+
     if (touches == 0 || touches > 2) {
         return;
     }
