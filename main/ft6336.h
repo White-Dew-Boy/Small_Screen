@@ -34,6 +34,7 @@
 #define FT6336_REG_CIPHER_MID      0x9F
 #define FT6336_REG_CIPHER_LOW      0xA0
 #define FT6336_REG_CIPHER_HIGH     0xA3
+#define FT6336_REG_G_MODE          0xA4
 #define FT6336_REG_FOCALTECH_ID    0xA8
 
 /* Threshold / timing config (optional) */
