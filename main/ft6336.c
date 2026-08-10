@@ -3,16 +3,10 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/i2c_master.h"
+#include "driver/i2c.h"
 #include "driver/gpio.h"
 
 static const char *TAG = "ft6336";
-
-/*----------------------------------------------------------------------------
- * Shared I2C bus handle (also usable by other I2C devices on same bus)
- *----------------------------------------------------------------------------*/
-static i2c_master_bus_handle_t i2c_bus_handle;
-static i2c_master_dev_handle_t  dev_handle;
 
 /*----------------------------------------------------------------------------
  * I2C bus scanner — probes every 7-bit address, logs what responds
@@ -22,14 +16,19 @@ static void i2c_scan(void)
     ESP_LOGI(TAG, "I2C bus scan (addr 0x01–0x7F):");
     int found = 0;
     for (uint8_t addr = 1; addr < 128; addr++) {
-        esp_err_t r = i2c_master_probe(i2c_bus_handle, addr, pdMS_TO_TICKS(20));
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+        i2c_master_stop(cmd);
+        esp_err_t r = i2c_master_cmd_begin(FT6336_I2C_PORT, cmd, pdMS_TO_TICKS(50));
+        i2c_cmd_link_delete(cmd);
         if (r == ESP_OK) {
             ESP_LOGI(TAG, "  Device at 0x%02X", addr);
             found++;
         }
     }
     if (found == 0) {
-        ESP_LOGW(TAG, "  No devices found — check SDA/SCL wiring and pull-ups");
+        ESP_LOGW(TAG, "  No devices found — check SDA/SCL wiring");
     }
 }
 
@@ -38,20 +37,20 @@ static void i2c_scan(void)
  *----------------------------------------------------------------------------*/
 static esp_err_t i2c_read_reg(uint8_t reg, uint8_t *data, size_t len)
 {
-    uint8_t reg_buf = reg;
-    return i2c_master_transmit_receive(dev_handle,
-                                       &reg_buf, 1,
-                                       data, len,
-                                       pdMS_TO_TICKS(50));
-}
-
-/*----------------------------------------------------------------------------
- * Low-level I2C register write
- *----------------------------------------------------------------------------*/
-static esp_err_t i2c_write_reg(uint8_t reg, uint8_t val)
-{
-    uint8_t buf[2] = { reg, val };
-    return i2c_master_transmit(dev_handle, buf, sizeof(buf), pdMS_TO_TICKS(50));
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (FT6336_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg, true);
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (FT6336_I2C_ADDR << 1) | I2C_MASTER_READ, true);
+    if (len > 1) {
+        i2c_master_read(cmd, data, len - 1, I2C_MASTER_ACK);
+    }
+    i2c_master_read_byte(cmd, data + len - 1, I2C_MASTER_NACK);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(FT6336_I2C_PORT, cmd, pdMS_TO_TICKS(100));
+    i2c_cmd_link_delete(cmd);
+    return ret;
 }
 
 /*----------------------------------------------------------------------------
@@ -97,29 +96,24 @@ esp_err_t ft6336_init(void)
     /* ---- Hardware reset ---- */
     hardware_reset();
 
-    /* ---- I2C master init ---- */
-    i2c_master_bus_config_t bus_cfg = {
-        .i2c_port     = FT6336_I2C_PORT,
-        .sda_io_num   = FT6336_I2C_SDA,
-        .scl_io_num   = FT6336_I2C_SCL,
-        .clk_source   = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
+    /* ---- I2C master init (legacy driver, well-tested on FT6336) ---- */
+    i2c_config_t i2c_cfg = {
+        .mode             = I2C_MODE_MASTER,
+        .sda_io_num       = FT6336_I2C_SDA,
+        .scl_io_num       = FT6336_I2C_SCL,
+        .sda_pullup_en    = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en    = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = FT6336_I2C_FREQ_HZ,
+        .clk_flags        = 0,
     };
-    ret = i2c_new_master_bus(&bus_cfg, &i2c_bus_handle);
+    ret = i2c_param_config(FT6336_I2C_PORT, &i2c_cfg);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2C bus init failed: %d", ret);
+        ESP_LOGE(TAG, "I2C param config failed: %d", ret);
         return ret;
     }
-
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address  = FT6336_I2C_ADDR,
-        .scl_speed_hz    = FT6336_I2C_FREQ_HZ,
-    };
-    ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &dev_handle);
+    ret = i2c_driver_install(FT6336_I2C_PORT, I2C_MODE_MASTER, 0, 0, 0);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2C add device failed: %d", ret);
+        ESP_LOGE(TAG, "I2C driver install failed: %d", ret);
         return ret;
     }
 
@@ -153,7 +147,6 @@ void ft6336_read(ft6336_touch_data_t *data)
 {
     data->num_touches = 0;
 
-    /* ---- Read touch status ---- */
     uint8_t status;
     if (i2c_read_reg(FT6336_REG_TD_STATUS, &status, 1) != ESP_OK) {
         return;
@@ -165,17 +158,12 @@ void ft6336_read(ft6336_touch_data_t *data)
     }
     data->num_touches = touches;
 
-    /* ---- Read point 1 (6 bytes: XH/XL/YH/YL + reserved + weight) ---- */
     uint8_t buf[6];
     if (i2c_read_reg(FT6336_REG_P1_XH, buf, 6) == ESP_OK) {
-        /* X coordinate: bits [11:8] from XH low nibble, bits [7:0] from XL */
         data->points[0].x = ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
-        /* Y coordinate: bits [11:8] from YH low nibble, bits [7:0] from YL */
         data->points[0].y = ((uint16_t)(buf[2] & 0x0F) << 8) | buf[3];
-        /* buf[4] = touch event flag, buf[5] = touch weight - unused for now */
     }
 
-    /* ---- Read point 2 if present ---- */
     if (touches >= 2) {
         if (i2c_read_reg(FT6336_REG_P2_XH, buf, 6) == ESP_OK) {
             data->points[1].x = ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
