@@ -936,7 +936,7 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 # default:
 # CONFIG_ESPTOOLPY_FLASHSIZE_8MB is not set
 # default:
-# CONFIG_ESPTOOLPY_FLASHSIZE_16MB is not set (overridden)
+# CONFIG_ESPTOOLPY_FLASHSIZE_16MB is not set
 # default:
 # CONFIG_ESPTOOLPY_FLASHSIZE_32MB is not set
 # default:
