@@ -84,16 +84,24 @@ void app_main(void)
                      touch.points[0].x, touch.points[0].y, tx, ty);
 
             if (tx != last_tx || ty != last_ty) {
+                int x0_new = tx - 20, y0_new = ty - 20;
+                int x0 = x0_new, y0 = y0_new, ww = 40, hh = 40;
+
                 if (last_tx >= 0) {
-                    int x0 = last_tx - 20, y0 = last_ty - 20;
+                    int x0_old = last_tx - 20, y0_old = last_ty - 20;
                     fill_rect(last_tx - 20, last_ty - 2, 40, 4, 0x0000);
                     fill_rect(last_tx - 2, last_ty - 20, 4, 40, 0x0000);
-                    lcd_draw_bitmap(fb, x0, y0, 40, 40);
+
+                    int x1 = x0_old < x0_new ? x0_old : x0_new;
+                    int y1 = y0_old < y0_new ? y0_old : y0_new;
+                    int x2 = (x0_old + 40 > x0_new + 40 ? x0_old + 40 : x0_new + 40);
+                    int y2 = (y0_old + 40 > y0_new + 40 ? y0_old + 40 : y0_new + 40);
+                    x0 = x1; y0 = y1; ww = x2 - x1; hh = y2 - y1;
                 }
-                int x0 = tx - 20, y0 = ty - 20;
+
                 fill_rect(tx - 20, ty - 2, 40, 4, 0xF800);
                 fill_rect(tx - 2, ty - 20, 4, 40, 0xF800);
-                lcd_draw_bitmap(fb, x0, y0, 40, 40);
+                lcd_draw_bitmap(fb, x0, y0, ww, hh);
                 last_tx = tx;
                 last_ty = ty;
             }
