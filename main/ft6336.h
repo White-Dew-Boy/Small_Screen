@@ -42,10 +42,13 @@
 #define FT6336_REG_PERIODACTIVE    0x88
 
 /*============================================================================
- * Panel Resolution (must match display)
+ * Panel Resolution + Modes
  *============================================================================*/
 #define FT6336_MAX_X  240
 #define FT6336_MAX_Y  320
+
+#define FT6336_MODE_ACTIVE   0x00
+#define FT6336_MODE_MONITOR  0x01
 
 /*============================================================================
  * Data Structures
@@ -70,8 +73,8 @@ typedef struct {
  */
 esp_err_t ft6336_init(void);
 
-/**
- * @brief Read current touch state. Safe to call from LVGL indev callback.
- * @param[out] data  Touch data struct to populate.
- */
 void ft6336_read(ft6336_touch_data_t *data);
+
+void ft6336_set_mode(uint8_t mode);
+
+void ft6336_enter_monitor(void);

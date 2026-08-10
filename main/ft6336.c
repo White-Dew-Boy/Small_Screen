@@ -136,3 +136,14 @@ void ft6336_read(ft6336_touch_data_t *data)
         }
     }
 }
+
+void ft6336_set_mode(uint8_t mode)
+{
+    uint8_t buf[2] = { FT6336_REG_G_MODE, mode };
+    i2c_master_transmit(dev_handle, buf, sizeof(buf), pdMS_TO_TICKS(100));
+}
+
+void ft6336_enter_monitor(void)
+{
+    ft6336_set_mode(FT6336_MODE_MONITOR);
+}
