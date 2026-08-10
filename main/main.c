@@ -25,8 +25,11 @@ static void fill_rect(int x, int y, int w, int h, uint16_t color)
     }
 }
 
+static uint32_t touch_event_count;
+
 static void IRAM_ATTR touch_isr(void *arg)
 {
+    touch_event_count++;
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     vTaskNotifyGiveFromISR(touch_task, &xHigherPriorityTaskWoken);
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -61,6 +64,8 @@ void app_main(void)
 
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        ESP_LOGI(TAG, "Touch INT (#%lu)", (unsigned long)touch_event_count);
 
         ft6336_touch_data_t touch;
         ft6336_read(&touch);
