@@ -7,6 +7,8 @@
 #include "freertos/task.h"
 #include "driver/spi_master.h"
 #include "driver/ledc.h"
+#include <string.h>
+#include <stdlib.h>
 
 #define LCD_HOST   SPI3_HOST
 #define LCD_MOSI   38
@@ -19,6 +21,9 @@
 
 static const char *TAG = "lcd_driver";
 static esp_lcd_panel_handle_t panel_handle;
+
+#define LCD_H_RES  240
+#define LCD_V_RES  320
 
 static void gb_swap_buf(uint16_t *pixels, int count)
 {
@@ -97,6 +102,17 @@ esp_err_t lcd_driver_init(void)
 
 void lcd_draw_bitmap(uint16_t *pixels, int x, int y, int w, int h)
 {
-    gb_swap_buf(pixels, w * h);
-    esp_lcd_panel_draw_bitmap(panel_handle, x, y, x + w, y + h, pixels);
+    int count = w * h;
+    uint16_t *tmp = malloc(count * sizeof(uint16_t));
+    if (!tmp) return;
+
+    for (int row = 0; row < h; row++) {
+        memcpy(&tmp[row * w],
+               &pixels[(y + row) * LCD_H_RES + x],
+               w * sizeof(uint16_t));
+    }
+
+    gb_swap_buf(tmp, count);
+    esp_lcd_panel_draw_bitmap(panel_handle, x, y, x + w, y + h, tmp);
+    free(tmp);
 }

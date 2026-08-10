@@ -88,12 +88,12 @@ void app_main(void)
                     int x0 = last_tx - 20, y0 = last_ty - 20;
                     fill_rect(last_tx - 20, last_ty - 2, 40, 4, 0x0000);
                     fill_rect(last_tx - 2, last_ty - 20, 4, 40, 0x0000);
-                    lcd_draw_bitmap(&fb[y0 * LCD_W + x0], x0, y0, 40, 40);
+                    lcd_draw_bitmap(fb, x0, y0, 40, 40);
                 }
                 int x0 = tx - 20, y0 = ty - 20;
                 fill_rect(tx - 20, ty - 2, 40, 4, 0xF800);
                 fill_rect(tx - 2, ty - 20, 4, 40, 0xF800);
-                lcd_draw_bitmap(&fb[y0 * LCD_W + x0], x0, y0, 40, 40);
+                lcd_draw_bitmap(fb, x0, y0, 40, 40);
                 last_tx = tx;
                 last_ty = ty;
             }
@@ -105,7 +105,7 @@ void app_main(void)
                 int x0 = last_tx - 20, y0 = last_ty - 20;
                 fill_rect(last_tx - 20, last_ty - 2, 40, 4, 0x0000);
                 fill_rect(last_tx - 2, last_ty - 20, 4, 40, 0x0000);
-                lcd_draw_bitmap(&fb[y0 * LCD_W + x0], x0, y0, 40, 40);
+                lcd_draw_bitmap(fb, x0, y0, 40, 40);
                 last_tx = -1;
                 last_ty = -1;
             }
