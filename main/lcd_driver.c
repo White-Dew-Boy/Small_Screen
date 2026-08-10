@@ -146,7 +146,7 @@ static void touchpad_read(lv_indev_t *indev, lv_indev_data_t *data)
 
     if (touch.num_touches > 0) {
         data->point.x = touch.points[0].x;
-        data->point.y = touch.points[0].y;
+        data->point.y = LCD_V_RES - 1 - touch.points[0].y;
         data->state   = LV_INDEV_STATE_PRESSED;
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
