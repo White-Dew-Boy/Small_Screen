@@ -9,30 +9,6 @@
 static const char *TAG = "ft6336";
 
 /*----------------------------------------------------------------------------
- * I2C bus scanner — probes every 7-bit address, logs what responds
- *----------------------------------------------------------------------------*/
-static void i2c_scan(void)
-{
-    ESP_LOGI(TAG, "I2C bus scan (addr 0x01–0x7F):");
-    int found = 0;
-    for (uint8_t addr = 1; addr < 128; addr++) {
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_stop(cmd);
-        esp_err_t r = i2c_master_cmd_begin(FT6336_I2C_PORT, cmd, pdMS_TO_TICKS(50));
-        i2c_cmd_link_delete(cmd);
-        if (r == ESP_OK) {
-            ESP_LOGI(TAG, "  Device at 0x%02X", addr);
-            found++;
-        }
-    }
-    if (found == 0) {
-        ESP_LOGW(TAG, "  No devices found — check SDA/SCL wiring");
-    }
-}
-
-/*----------------------------------------------------------------------------
  * Low-level I2C register read (writes reg addr, then reads len bytes)
  *----------------------------------------------------------------------------*/
 static esp_err_t i2c_read_reg(uint8_t reg, uint8_t *data, size_t len)
@@ -116,9 +92,6 @@ esp_err_t ft6336_init(void)
         ESP_LOGE(TAG, "I2C driver install failed: %d", ret);
         return ret;
     }
-
-    /* ---- I2C bus scan for diagnostics ---- */
-    i2c_scan();
 
     /* ---- Chip ID verification (retry up to 3 times) ---- */
     uint8_t chip_id = 0;
