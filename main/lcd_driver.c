@@ -142,6 +142,17 @@ void lcd_fill_screen(uint16_t color)
     flush_rect(0, 0, LCD_H_RES, LCD_V_RES);
 }
 
+static void erase_region(int16_t cx, int16_t cy)
+{
+    fill_rect(cx - 20, cy - 20, 40, 40, 0x0000);
+}
+
+static void draw_cross(int16_t cx, int16_t cy, uint16_t color)
+{
+    fill_rect(cx - 20, cy - 2, 40, 4, color);
+    fill_rect(cx - 2, cy - 20, 4, 40, color);
+}
+
 void lcd_draw_cross(int16_t cx, int16_t cy, uint16_t color)
 {
     if (cx < 20) cx = 20;
@@ -149,8 +160,7 @@ void lcd_draw_cross(int16_t cx, int16_t cy, uint16_t color)
     if (cy < 20) cy = 20;
     if (cy > LCD_V_RES - 21) cy = LCD_V_RES - 21;
 
-    fill_rect(cx - 20, cy - 2, 40, 4, color);
-    fill_rect(cx - 2, cy - 20, 4, 40, color);
+    draw_cross(cx, cy, color);
     flush_rect(cx - 20, cy - 20, 40, 40);
 }
 
@@ -171,20 +181,17 @@ void lcd_move_cross(int16_t old_cx, int16_t old_cy,
         if (old_cy > LCD_V_RES - 21) old_cy = LCD_V_RES - 21;
 
         int ox0 = old_cx - 20, oy0 = old_cy - 20;
-        fill_rect(old_cx - 20, old_cy - 2, 40, 4, 0x0000);
-        fill_rect(old_cx - 2, old_cy - 20, 4, 40, 0x0000);
+        erase_region(old_cx, old_cy);
 
         int x1 = ox0 < nx0 ? ox0 : nx0;
         int y1 = oy0 < ny0 ? oy0 : ny0;
         int x2 = ox0 + 40 > nx0 + 40 ? ox0 + 40 : nx0 + 40;
         int y2 = oy0 + 40 > ny0 + 40 ? oy0 + 40 : ny0 + 40;
 
-        fill_rect(new_cx - 20, new_cy - 2, 40, 4, 0xF800);
-        fill_rect(new_cx - 2, new_cy - 20, 4, 40, 0xF800);
+        draw_cross(new_cx, new_cy, 0xF800);
         flush_rect(x1, y1, x2 - x1, y2 - y1);
     } else {
-        fill_rect(new_cx - 20, new_cy - 2, 40, 4, 0xF800);
-        fill_rect(new_cx - 2, new_cy - 20, 4, 40, 0xF800);
+        draw_cross(new_cx, new_cy, 0xF800);
         flush_rect(nx0, ny0, 40, 40);
     }
 }
@@ -196,7 +203,6 @@ void lcd_clear_cross(int16_t cx, int16_t cy)
     if (cy < 20) cy = 20;
     if (cy > LCD_V_RES - 21) cy = LCD_V_RES - 21;
 
-    fill_rect(cx - 20, cy - 2, 40, 4, 0x0000);
-    fill_rect(cx - 2, cy - 20, 4, 40, 0x0000);
+    erase_region(cx, cy);
     flush_rect(cx - 20, cy - 20, 40, 40);
 }
