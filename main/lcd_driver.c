@@ -137,9 +137,10 @@ void lcd_draw_bitmap(uint16_t *pixels, int x, int y, int w, int h)
  * Touch Input
  *============================================================================*/
 
+static lv_indev_t *touch_indev;
+
 static void touchpad_read(lv_indev_t *indev, lv_indev_data_t *data)
 {
-    static uint32_t call_count = 0;
     ft6336_touch_data_t touch;
     ft6336_read(&touch);
 
@@ -149,11 +150,6 @@ static void touchpad_read(lv_indev_t *indev, lv_indev_data_t *data)
         data->state   = LV_INDEV_STATE_PRESSED;
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
-    }
-
-    if (++call_count % 100 == 0) {
-        ESP_LOGI(TAG, "lv_indev: touches=%d state=%d x=%d y=%d",
-                 touch.num_touches, data->state, data->point.x, data->point.y);
     }
 }
 
@@ -165,9 +161,16 @@ void lcd_lvgl_touch_init(void)
         return;
     }
 
-    lv_indev_t *indev = lv_indev_create();
-    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(indev, touchpad_read);
+    touch_indev = lv_indev_create();
+    lv_indev_set_type(touch_indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(touch_indev, touchpad_read);
 
     ESP_LOGI(TAG, "LVGL touch indev registered");
+}
+
+void lcd_lvgl_touch_poll(void)
+{
+    if (touch_indev) {
+        lv_indev_read(touch_indev);
+    }
 }

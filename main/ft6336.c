@@ -118,26 +118,14 @@ esp_err_t ft6336_init(void)
 
 void ft6336_read(ft6336_touch_data_t *data)
 {
-    static uint32_t idle_count = 0;
     data->num_touches = 0;
 
     uint8_t status;
-    esp_err_t ret = i2c_read_reg(FT6336_REG_TD_STATUS, &status, 1);
-    if (ret != ESP_OK) {
-        if (++idle_count % 100 == 0) {
-            ESP_LOGW(TAG, "I2C read TD_STATUS failed: %d", ret);
-        }
+    if (i2c_read_reg(FT6336_REG_TD_STATUS, &status, 1) != ESP_OK) {
         return;
     }
 
     uint8_t touches = status & 0x0F;
-
-    if (++idle_count % 100 == 0) {
-        uint8_t mode = 0;
-        i2c_read_reg(FT6336_REG_G_MODE, &mode, 1);
-        ESP_LOGI(TAG, "Idle: TD_STATUS=0x%02x G_MODE=0x%02x", status, mode);
-    }
-
     if (touches == 0 || touches > 2) {
         return;
     }
@@ -147,19 +135,12 @@ void ft6336_read(ft6336_touch_data_t *data)
     if (i2c_read_reg(FT6336_REG_P1_XH, buf, 6) == ESP_OK) {
         data->points[0].x = ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
         data->points[0].y = ((uint16_t)(buf[2] & 0x0F) << 8) | buf[3];
-        ESP_LOGI(TAG, "Touch: status=0x%02x num=%d p1=(%d,%d) raw=[%02x %02x %02x %02x %02x %02x]",
-                 status, touches,
-                 data->points[0].x, data->points[0].y,
-                 buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
     }
 
     if (touches >= 2) {
         if (i2c_read_reg(FT6336_REG_P2_XH, buf, 6) == ESP_OK) {
             data->points[1].x = ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
             data->points[1].y = ((uint16_t)(buf[2] & 0x0F) << 8) | buf[3];
-            ESP_LOGI(TAG, "Touch: p2=(%d,%d) raw=[%02x %02x %02x %02x %02x %02x]",
-                     data->points[1].x, data->points[1].y,
-                     buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
         }
     }
 }

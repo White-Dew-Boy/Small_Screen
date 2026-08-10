@@ -2,27 +2,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lcd_driver.h"
-#include "ft6336.h"
 #include "lvgl.h"
 
 static const char *TAG = "app_main";
 
 static void lvgl_task(void *arg)
 {
-    uint32_t count = 0;
     while (1) {
+        lcd_lvgl_touch_poll();
         lv_timer_handler();
-
-        ft6336_touch_data_t touch;
-        ft6336_read(&touch);
-        if (touch.num_touches > 0) {
-            ESP_LOGI(TAG, "TOUCH! p1=(%d,%d) touches=%d",
-                     touch.points[0].x, touch.points[0].y, touch.num_touches);
-        }
-        if (++count % 100 == 0) {
-            ESP_LOGI(TAG, "alive %lu", count);
-        }
-
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
