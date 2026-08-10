@@ -66,8 +66,15 @@ void app_main(void)
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
+        vTaskDelay(pdMS_TO_TICKS(15));
+
         ft6336_touch_data_t touch;
-        ft6336_read(&touch);
+        int retry = 3;
+        do {
+            ft6336_read(&touch);
+            if (touch.num_touches > 0) break;
+            vTaskDelay(pdMS_TO_TICKS(5));
+        } while (--retry > 0);
 
         if (touch.num_touches > 0 && !frozen) {
             int16_t tx = LCD_W - 1 - touch.points[0].x;
