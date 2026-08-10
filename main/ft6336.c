@@ -135,12 +135,19 @@ void ft6336_read(ft6336_touch_data_t *data)
     if (i2c_read_reg(FT6336_REG_P1_XH, buf, 6) == ESP_OK) {
         data->points[0].x = ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
         data->points[0].y = ((uint16_t)(buf[2] & 0x0F) << 8) | buf[3];
+        ESP_LOGI(TAG, "Touch: status=0x%02x num=%d p1=(%d,%d) raw=[%02x %02x %02x %02x %02x %02x]",
+                 status, touches,
+                 data->points[0].x, data->points[0].y,
+                 buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
     }
 
     if (touches >= 2) {
         if (i2c_read_reg(FT6336_REG_P2_XH, buf, 6) == ESP_OK) {
             data->points[1].x = ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
             data->points[1].y = ((uint16_t)(buf[2] & 0x0F) << 8) | buf[3];
+            ESP_LOGI(TAG, "Touch: p2=(%d,%d) raw=[%02x %02x %02x %02x %02x %02x]",
+                     data->points[1].x, data->points[1].y,
+                     buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]);
         }
     }
 }
