@@ -61,6 +61,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Waiting for touch (monitor mode)...");
 
     int16_t last_tx = -1, last_ty = -1;
+    bool frozen = false;
 
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -68,7 +69,7 @@ void app_main(void)
         ft6336_touch_data_t touch;
         ft6336_read(&touch);
 
-        if (touch.num_touches > 0) {
+        if (touch.num_touches > 0 && !frozen) {
             int16_t tx = LCD_W - 1 - touch.points[0].x;
             int16_t ty = LCD_H - 1 - touch.points[0].y;
 
@@ -87,6 +88,8 @@ void app_main(void)
                 lcd_draw_bitmap(fb, tx - 20, ty - 20, 40, 40);
                 last_tx = tx;
                 last_ty = ty;
+                frozen = true;
+                ESP_LOGI(TAG, "Screen frozen");
             }
 
             vTaskDelay(pdMS_TO_TICKS(2));
