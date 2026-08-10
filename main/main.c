@@ -61,7 +61,6 @@ void app_main(void)
     ESP_LOGI(TAG, "Waiting for touch (monitor mode)...");
 
     int16_t last_tx = -1, last_ty = -1;
-    bool frozen = false;
 
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -76,11 +75,6 @@ void app_main(void)
             vTaskDelay(pdMS_TO_TICKS(5));
         } while (--retry > 0);
 
-        if (frozen) {
-            ESP_LOGI(TAG, "INT #%lu  frozen, skip", (unsigned long)touch_event_count);
-            continue;
-        }
-
         if (touch.num_touches > 0) {
             int16_t tx = LCD_W - 1 - touch.points[0].x;
             int16_t ty = LCD_H - 1 - touch.points[0].y;
@@ -91,26 +85,27 @@ void app_main(void)
 
             if (tx != last_tx || ty != last_ty) {
                 if (last_tx >= 0) {
+                    int x0 = last_tx - 20, y0 = last_ty - 20;
                     fill_rect(last_tx - 20, last_ty - 2, 40, 4, 0x0000);
                     fill_rect(last_tx - 2, last_ty - 20, 4, 40, 0x0000);
-                    lcd_draw_bitmap(fb, last_tx - 20, last_ty - 20, 40, 40);
+                    lcd_draw_bitmap(&fb[y0 * LCD_W + x0], x0, y0, 40, 40);
                 }
+                int x0 = tx - 20, y0 = ty - 20;
                 fill_rect(tx - 20, ty - 2, 40, 4, 0xF800);
                 fill_rect(tx - 2, ty - 20, 4, 40, 0xF800);
-                lcd_draw_bitmap(fb, tx - 20, ty - 20, 40, 40);
+                lcd_draw_bitmap(&fb[y0 * LCD_W + x0], x0, y0, 40, 40);
                 last_tx = tx;
                 last_ty = ty;
-                frozen = true;
-                ESP_LOGI(TAG, "Screen frozen");
             }
 
             vTaskDelay(pdMS_TO_TICKS(2));
         } else {
             ESP_LOGI(TAG, "INT #%lu  released", (unsigned long)touch_event_count);
             if (last_tx >= 0) {
+                int x0 = last_tx - 20, y0 = last_ty - 20;
                 fill_rect(last_tx - 20, last_ty - 2, 40, 4, 0x0000);
                 fill_rect(last_tx - 2, last_ty - 20, 4, 40, 0x0000);
-                lcd_draw_bitmap(fb, last_tx - 20, last_ty - 20, 40, 40);
+                lcd_draw_bitmap(&fb[y0 * LCD_W + x0], x0, y0, 40, 40);
                 last_tx = -1;
                 last_ty = -1;
             }
