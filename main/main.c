@@ -2,75 +2,45 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lcd_driver.h"
+#include "ft6336.h"
 #include "lvgl.h"
 
 static const char *TAG = "app_main";
-static lv_obj_t *coord_label;
-
-static void update_coord_label(void)
-{
-    if (lcd_touch_is_pressed()) {
-        int16_t x, y;
-        lcd_touch_get_pos(&x, &y);
-        lv_label_set_text_fmt(coord_label, "X:%4d Y:%4d", (int)x, (int)y);
-    } else {
-        lv_label_set_text(coord_label, "X:--- Y:---");
-    }
-}
 
 static void lvgl_task(void *arg)
 {
-    uint32_t count = 0;
     while (1) {
-        lcd_lvgl_touch_poll();
-        update_coord_label();
         lv_timer_handler();
-
-        if (++count % 50 == 0) {
-            int16_t x, y;
-            lcd_touch_get_pos(&x, &y);
-            ESP_LOGI(TAG, "touch=%d x=%d y=%d",
-                     lcd_touch_is_pressed(), (int)x, (int)y);
-        }
-
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-}
-
-static void btn_clicked_cb(lv_event_t *e)
-{
-    ESP_LOGI(TAG, "Touch button pressed!");
 }
 
 void app_main(void)
 {
     lcd_lvgl_init();
     ESP_LOGI(TAG, "LVGL display initialized");
-    lcd_lvgl_touch_init();
 
-    lv_obj_t *title = lv_label_create(lv_screen_active());
-    lv_label_set_text(title, "Touch Demo");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 5);
+    esp_err_t ret = ft6336_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "FT6336 init failed");
+    }
 
-    coord_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(coord_label, "X: ---  Y: ---");
-    lv_obj_align(coord_label, LV_ALIGN_TOP_MID, 0, 30);
-
-    lv_obj_t *btn = lv_button_create(lv_screen_active());
-    lv_obj_set_size(btn, 120, 50);
-    lv_obj_align(btn, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_event_cb(btn, btn_clicked_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *btn_label = lv_label_create(btn);
-    lv_label_set_text(btn_label, "Tap Me");
-    lv_obj_center(btn_label);
-
-    lv_obj_t *slider = lv_slider_create(lv_screen_active());
-    lv_obj_set_width(slider, 200);
-    lv_obj_align(slider, LV_ALIGN_BOTTOM_MID, 0, -20);
-
-    ESP_LOGI(TAG, "Touch demo ready");
+    lv_obj_t *label = lv_label_create(lv_screen_active());
+    lv_label_set_text(label, "Touch Test");
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 
     xTaskCreate(lvgl_task, "lvgl", 16384, NULL, 1, NULL);
-    vTaskDelete(NULL);
+
+    while (1) {
+        ft6336_touch_data_t touch;
+        ft6336_read(&touch);
+        if (touch.num_touches > 0) {
+            int16_t y_flip = 319 - touch.points[0].y;
+            ESP_LOGI(TAG, "TOUCH raw=(%d,%d) flip=(%d,%d) points=%d",
+                     touch.points[0].x, touch.points[0].y,
+                     touch.points[0].x, y_flip,
+                     touch.num_touches);
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
 }
