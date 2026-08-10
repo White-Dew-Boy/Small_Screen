@@ -40,7 +40,7 @@ void app_main(void)
         memset(fb, 0, LCD_W * LCD_H * sizeof(uint16_t));
 
         if (touch.num_touches > 0) {
-            int16_t tx = touch.points[0].x;
+            int16_t tx = LCD_W - 1 - touch.points[0].x;
             int16_t ty = LCD_H - 1 - touch.points[0].y;
 
             fill_rect(tx - 20, ty - 2, 40, 4, 0xF800);
