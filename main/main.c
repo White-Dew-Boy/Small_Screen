@@ -20,7 +20,7 @@ static void update_coord_label(void)
 
     lv_indev_state_t state = lv_indev_get_state(indev);
     if (state == LV_INDEV_STATE_PRESSED) {
-        lv_label_set_text_fmt(coord_label, "X: %4d  Y: %4d", point.x, point.y);
+        lv_label_set_text_fmt(coord_label, "X: %4d  Y: %4d", (int)point.x, (int)point.y);
     } else {
         lv_label_set_text(coord_label, "X: ---  Y: ---");
     }
