@@ -76,7 +76,12 @@ void app_main(void)
             vTaskDelay(pdMS_TO_TICKS(5));
         } while (--retry > 0);
 
-        if (touch.num_touches > 0 && !frozen) {
+        if (frozen) {
+            ESP_LOGI(TAG, "INT #%lu  frozen, skip", (unsigned long)touch_event_count);
+            continue;
+        }
+
+        if (touch.num_touches > 0) {
             int16_t tx = LCD_W - 1 - touch.points[0].x;
             int16_t ty = LCD_H - 1 - touch.points[0].y;
 
