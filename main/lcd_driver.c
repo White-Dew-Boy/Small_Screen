@@ -3,12 +3,10 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_log.h"
-#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/spi_master.h"
 #include "driver/ledc.h"
-#include "lvgl.h"
 
 #define LCD_HOST   SPI3_HOST
 #define LCD_MOSI   38
@@ -18,8 +16,6 @@
 #define LCD_DC     45
 #define LCD_RST    47
 #define LCD_BL     40
-#define LCD_H_RES  240
-#define LCD_V_RES  320
 
 static const char *TAG = "lcd_driver";
 static esp_lcd_panel_handle_t panel_handle;
@@ -35,33 +31,6 @@ static void gb_swap_buf(uint16_t *pixels, int count)
     }
 }
 
-static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
-{
-    int w = area->x2 - area->x1 + 1;
-    int h = area->y2 - area->y1 + 1;
-
-    gb_swap_buf((uint16_t *)px_map, w * h);
-    esp_lcd_panel_draw_bitmap(panel_handle, area->x1, area->y1, area->x1 + w, area->y1 + h, px_map);
-    lv_display_flush_ready(disp);
-}
-
-#define LVGL_BUF_LINES 40
-
-static lv_color_t lvgl_buf1[LCD_H_RES * LVGL_BUF_LINES];
-static lv_color_t lvgl_buf2[LCD_H_RES * LVGL_BUF_LINES];
-
-void lcd_lvgl_init(void)
-{
-    lcd_driver_init();
-
-    lv_init();
-
-    lv_display_t *disp = lv_display_create(LCD_H_RES, LCD_V_RES);
-    lv_display_set_flush_cb(disp, lvgl_flush_cb);
-    lv_display_set_buffers(disp, lvgl_buf1, lvgl_buf2,
-                           sizeof(lvgl_buf1), LV_DISPLAY_RENDER_MODE_PARTIAL);
-}
-
 esp_err_t lcd_driver_init(void)
 {
     vTaskDelay(pdMS_TO_TICKS(300));
@@ -72,7 +41,7 @@ esp_err_t lcd_driver_init(void)
         .sclk_io_num = LCD_SCLK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 240 * 40 * sizeof(uint16_t),
+        .max_transfer_sz = 240 * 320 * sizeof(uint16_t),
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
