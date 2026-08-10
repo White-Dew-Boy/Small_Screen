@@ -1,5 +1,4 @@
 #include "lcd_driver.h"
-#include "ft6336.h"
 #include "esp_lcd_ili9341.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
@@ -131,63 +130,4 @@ void lcd_draw_bitmap(uint16_t *pixels, int x, int y, int w, int h)
 {
     gb_swap_buf(pixels, w * h);
     esp_lcd_panel_draw_bitmap(panel_handle, x, y, x + w, y + h, pixels);
-}
-
-/*============================================================================
- * Touch Input
- *============================================================================*/
-
-static lv_indev_t *touch_indev;
-static bool touch_pressed;
-static int16_t touch_x, touch_y;
-
-static void touchpad_read(lv_indev_t *indev, lv_indev_data_t *data)
-{
-    ft6336_touch_data_t touch;
-    ft6336_read(&touch);
-
-    if (touch.num_touches > 0) {
-        touch_x = touch.points[0].x;
-        touch_y = LCD_V_RES - 1 - touch.points[0].y;
-        touch_pressed = true;
-        data->point.x = touch_x;
-        data->point.y = touch_y;
-        data->state   = LV_INDEV_STATE_PRESSED;
-    } else {
-        touch_pressed = false;
-        data->state = LV_INDEV_STATE_RELEASED;
-    }
-}
-
-void lcd_lvgl_touch_init(void)
-{
-    esp_err_t ret = ft6336_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Touch init failed (%d), skipping indev", ret);
-        return;
-    }
-
-    touch_indev = lv_indev_create();
-    lv_indev_set_type(touch_indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(touch_indev, touchpad_read);
-
-    ESP_LOGI(TAG, "LVGL touch indev registered");
-}
-
-void lcd_lvgl_touch_poll(void)
-{
-    if (touch_indev) {
-        lv_indev_read(touch_indev);
-    }
-}
-
-bool lcd_touch_is_pressed(void)
-{
-    return touch_pressed;
-}
-
-void lcd_touch_get_pos(int16_t *x, int16_t *y)
-{
-    *x = touch_x;
-    *y = touch_y;
 }
