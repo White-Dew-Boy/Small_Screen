@@ -9,18 +9,10 @@ static lv_obj_t *coord_label;
 
 static void update_coord_label(void)
 {
-    lv_indev_t *indev = lv_indev_active();
-    if (indev == NULL) {
-        lv_label_set_text(coord_label, "X: ---  Y: ---");
-        return;
-    }
-
-    lv_point_t point;
-    lv_indev_get_point(indev, &point);
-
-    lv_indev_state_t state = lv_indev_get_state(indev);
-    if (state == LV_INDEV_STATE_PRESSED) {
-        lv_label_set_text_fmt(coord_label, "X: %4d  Y: %4d", (int)point.x, (int)point.y);
+    if (lcd_touch_is_pressed()) {
+        int16_t x, y;
+        lcd_touch_get_pos(&x, &y);
+        lv_label_set_text_fmt(coord_label, "X: %4d  Y: %4d", (int)x, (int)y);
     } else {
         lv_label_set_text(coord_label, "X: ---  Y: ---");
     }

@@ -138,6 +138,8 @@ void lcd_draw_bitmap(uint16_t *pixels, int x, int y, int w, int h)
  *============================================================================*/
 
 static lv_indev_t *touch_indev;
+static bool touch_pressed;
+static int16_t touch_x, touch_y;
 
 static void touchpad_read(lv_indev_t *indev, lv_indev_data_t *data)
 {
@@ -145,10 +147,14 @@ static void touchpad_read(lv_indev_t *indev, lv_indev_data_t *data)
     ft6336_read(&touch);
 
     if (touch.num_touches > 0) {
-        data->point.x = touch.points[0].x;
-        data->point.y = LCD_V_RES - 1 - touch.points[0].y;
+        touch_x = touch.points[0].x;
+        touch_y = LCD_V_RES - 1 - touch.points[0].y;
+        touch_pressed = true;
+        data->point.x = touch_x;
+        data->point.y = touch_y;
         data->state   = LV_INDEV_STATE_PRESSED;
     } else {
+        touch_pressed = false;
         data->state = LV_INDEV_STATE_RELEASED;
     }
 }
@@ -173,4 +179,15 @@ void lcd_lvgl_touch_poll(void)
     if (touch_indev) {
         lv_indev_read(touch_indev);
     }
+}
+
+bool lcd_touch_is_pressed(void)
+{
+    return touch_pressed;
+}
+
+void lcd_touch_get_pos(int16_t *x, int16_t *y)
+{
+    *x = touch_x;
+    *y = touch_y;
 }
