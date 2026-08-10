@@ -12,9 +12,9 @@ static void update_coord_label(void)
     if (lcd_touch_is_pressed()) {
         int16_t x, y;
         lcd_touch_get_pos(&x, &y);
-        lv_label_set_text_fmt(coord_label, "X: %4d  Y: %4d", (int)x, (int)y);
+        lv_label_set_text_fmt(coord_label, "X:%4d Y:%4d", (int)x, (int)y);
     } else {
-        lv_label_set_text(coord_label, "X: ---  Y: ---");
+        lv_label_set_text(coord_label, "X:--- Y:---");
     }
 }
 
@@ -23,10 +23,16 @@ static void lvgl_task(void *arg)
     uint32_t count = 0;
     while (1) {
         lcd_lvgl_touch_poll();
+        update_coord_label();
         lv_timer_handler();
-        if (++count % 10 == 0) {
-            update_coord_label();
+
+        if (++count % 50 == 0) {
+            int16_t x, y;
+            lcd_touch_get_pos(&x, &y);
+            ESP_LOGI(TAG, "touch=%d x=%d y=%d",
+                     lcd_touch_is_pressed(), (int)x, (int)y);
         }
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
