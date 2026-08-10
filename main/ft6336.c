@@ -49,15 +49,6 @@ esp_err_t ft6336_init(void)
     };
     gpio_config(&rst_cfg);
 
-    gpio_config_t int_cfg = {
-        .pin_bit_mask = BIT64(FT6336_INT),
-        .mode         = GPIO_MODE_INPUT,
-        .pull_up_en   = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&int_cfg);
-
     hardware_reset();
 
     gpio_config_t i2c_pin_cfg = {
