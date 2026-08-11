@@ -20,12 +20,12 @@
 #define LCD_BL     40
 
 static const char *TAG = "lcd_driver";
-static esp_lcd_panel_handle_t panel_handle;
+esp_lcd_panel_handle_t panel_handle;
 
 #define LCD_H_RES  240
 #define LCD_V_RES  320
 
-static void gb_swap_buf(uint16_t *pixels, int count)
+void gb_swap_buf(uint16_t *pixels, int count)
 {
     for (int i = 0; i < count; i++) {
         uint16_t c = pixels[i];
