@@ -4,6 +4,7 @@
 #include "lcd_driver.h"
 #include "ft6336.h"
 #include "sd_card.h"
+#include "serial_file.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -53,6 +54,7 @@ void app_main(void)
 
     if (sd_ret == ESP_OK) {
         display_picture_from_sd();
+        serial_file_init();
     }
 
     ft6336_init();
