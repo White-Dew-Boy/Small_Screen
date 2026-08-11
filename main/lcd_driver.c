@@ -20,7 +20,7 @@
 #define LCD_BL     40
 
 static const char *TAG = "lcd_driver";
-esp_lcd_panel_handle_t panel_handle;
+static esp_lcd_panel_handle_t panel_handle;
 
 #define LCD_H_RES  240
 #define LCD_V_RES  320
