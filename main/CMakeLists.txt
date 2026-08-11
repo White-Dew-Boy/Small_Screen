@@ -1,3 +1,3 @@
-idf_component_register(SRCS "main.c" "ft6336.c" "lcd_driver.c"
+idf_component_register(SRCS "main.c" "ft6336.c" "lcd_driver.c" "sd_card.c"
                     INCLUDE_DIRS "."
-                    REQUIRES esp_lcd esp_driver_ledc driver)
+                    REQUIRES esp_lcd esp_driver_ledc driver fatfs sdmmc)
