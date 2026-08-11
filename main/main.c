@@ -3,11 +3,19 @@
 #include "freertos/task.h"
 #include "lcd_driver.h"
 #include "ft6336.h"
+#include "sd_card.h"
 
 static const char *TAG = "app_main";
 
 void app_main(void)
 {
+    /* SD must init first — enters SPI mode before LCD communicates on shared bus */
+    esp_err_t sd_ret = sd_card_init();
+    if (sd_ret != ESP_OK) {
+        ESP_LOGW(TAG, "SD card not available (%s), continuing without SD",
+                 esp_err_to_name(sd_ret));
+    }
+
     lcd_init();
     ft6336_init();
     ESP_LOGI(TAG, "Ready");
