@@ -40,15 +40,12 @@ esp_err_t lcd_driver_init(void)
 {
     vTaskDelay(pdMS_TO_TICKS(300));
 
-    spi_bus_config_t buscfg = {
-        .mosi_io_num = LCD_MOSI,
-        .miso_io_num = LCD_MISO,
-        .sclk_io_num = LCD_SCLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 240 * 320 * sizeof(uint16_t),
-    };
-    ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
+    /* Verify SPI bus is already initialized by sd_card_init() */
+    size_t dummy;
+    if (spi_bus_get_max_transaction_len(LCD_HOST, &dummy) != ESP_OK) {
+        ESP_LOGE(TAG, "SPI bus not initialized — call sd_card_init() first");
+        return ESP_ERR_INVALID_STATE;
+    }
 
     esp_lcd_panel_io_spi_config_t io_config = {
         .cs_gpio_num = LCD_CS,
