@@ -3,22 +3,22 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/uart.h"
 #include "sd_card.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 static const char *TAG = "serial_file";
+#define UART_NUM  UART_NUM_0
+#define BUF_SIZE  2048
 
 static void send_str(const char *s)
 {
-    fputs(s, stdout);
-    fflush(stdout);
+    uart_write_bytes(UART_NUM, s, strlen(s));
 }
 
-/*============================================================================
- * Write handler — receives raw binary after sending RDY
- *============================================================================*/
 static void handle_write(const char *filename, size_t size)
 {
     if (strchr(filename, '/') || strchr(filename, '\\') ||
@@ -42,14 +42,16 @@ static void handle_write(const char *filename, size_t size)
 
     size_t received = 0;
     while (received < size) {
-        size_t chunk = fread(buf + received, 1, size - received, stdin);
-        if (chunk == 0) {
-            ESP_LOGE(TAG, "EOF after %d/%d bytes", (int)received, (int)size);
+        int len = uart_read_bytes(UART_NUM, buf + received,
+                                   size - received,
+                                   pdMS_TO_TICKS(5000));
+        if (len <= 0) {
+            ESP_LOGE(TAG, "Timeout after %d/%d bytes", (int)received, (int)size);
             free(buf);
             send_str("ERR TIMEOUT\r\n");
             return;
         }
-        received += chunk;
+        received += len;
     }
 
     FILE *f = fopen(path, "wb");
@@ -59,51 +61,60 @@ static void handle_write(const char *filename, size_t size)
         send_str("ERR OPEN\r\n");
         return;
     }
-
     size_t written = fwrite(buf, 1, size, f);
     fclose(f);
     free(buf);
 
     if (written != size) {
-        ESP_LOGE(TAG, "Write incomplete: %d/%d", (int)written, (int)size);
         send_str("ERR WRITE\r\n");
         return;
     }
-
     char resp[64];
     snprintf(resp, sizeof(resp), "OK %d\r\n", (int)written);
     send_str(resp);
     ESP_LOGI(TAG, "Saved %s (%d bytes)", filename, (int)written);
 }
 
-/*============================================================================
- * Background task — reads text commands from stdin (console UART)
- *============================================================================*/
 static void serial_file_task(void *arg)
 {
+    uart_config_t uart_cfg = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    };
+    uart_driver_install(UART_NUM, BUF_SIZE, 0, 0, NULL, 0);
+    uart_param_config(UART_NUM, &uart_cfg);
+    uart_set_pin(UART_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE,
+                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+
     ESP_LOGI(TAG, "Serial file service started");
-    send_str("SD card file receiver ready.\r\n");
+    send_str("RDY\r\n");
 
+    char line[256];
+    int pos = 0;
     while (1) {
-        char line[256];
-        if (!fgets(line, sizeof(line), stdin)) {
-            vTaskDelay(pdMS_TO_TICKS(100));
+        uint8_t ch;
+        if (uart_read_bytes(UART_NUM, &ch, 1, pdMS_TO_TICKS(100)) <= 0)
             continue;
-        }
-
-        size_t len = strlen(line);
-        while (len > 0 && (line[len-1] == '\r' || line[len-1] == '\n'))
-            line[--len] = '\0';
-
-        char cmd[16], fname[128];
-        int fsize;
-        if (sscanf(line, "%15s %127s %d", cmd, fname, &fsize) == 3) {
-            if (strcasecmp(cmd, "WRITE") == 0 && fsize > 0) {
-                handle_write(fname, fsize);
-                continue;
+        if (ch == '\r' || ch == '\n') {
+            if (pos > 0) {
+                line[pos] = '\0';
+                pos = 0;
+                char cmd[16], fname[128];
+                int fsize;
+                if (sscanf(line, "%15s %127s %d", cmd, fname, &fsize) == 3) {
+                    if (strcasecmp(cmd, "WRITE") == 0 && fsize > 0) {
+                        handle_write(fname, fsize);
+                        continue;
+                    }
+                }
+                send_str("ERR FORMAT\r\n");
             }
+        } else if (pos < (int)sizeof(line) - 1) {
+            line[pos++] = (char)ch;
         }
-        send_str("ERR FORMAT\r\n");
     }
 }
 
