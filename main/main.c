@@ -4,6 +4,8 @@
 #include "lcd_driver.h"
 #include "ft6336.h"
 #include "sd_card.h"
+#include "esp_heap_caps.h"
+#include <inttypes.h>
 
 static const char *TAG = "app_main";
 
@@ -17,6 +19,11 @@ void app_main(void)
 
     lcd_init();
     ft6336_init();
+
+    ESP_LOGI(TAG, "Free heap: internal=%" PRIu32 " KB, PSRAM=%" PRIu32 " KB",
+             esp_get_free_internal_heap_size() / 1024,
+             esp_get_free_heap_size() / 1024);
+
     ESP_LOGI(TAG, "Ready");
 
     int16_t last_cx = -1, last_cy = -1;
