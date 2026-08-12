@@ -4,43 +4,8 @@
 #include "lcd_driver.h"
 #include "ft6336.h"
 #include "sd_card.h"
-#include "serial_file.h"
-#include <stdio.h>
-#include <stdlib.h>
 
 static const char *TAG = "app_main";
-
-#define PICTURE_W  240
-#define PICTURE_H  320
-
-static void display_picture_from_sd(void)
-{
-    FILE *f = fopen("/sdcard/picture1.bin", "rb");
-    if (!f) {
-        ESP_LOGW(TAG, "picture1.bin not found on SD card");
-        return;
-    }
-
-    int count = PICTURE_W * PICTURE_H;
-    uint16_t *buf = malloc(count * sizeof(uint16_t));
-    if (!buf) {
-        ESP_LOGE(TAG, "Failed to allocate picture buffer");
-        fclose(f);
-        return;
-    }
-
-    size_t read = fread(buf, sizeof(uint16_t), count, f);
-    fclose(f);
-
-    if (read == count) {
-        esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, PICTURE_W, PICTURE_H, buf);
-        ESP_LOGI(TAG, "Picture displayed from SD card");
-    } else {
-        ESP_LOGE(TAG, "Failed to read picture (got %d/%d pixels)", read, count);
-    }
-
-    free(buf);
-}
 
 void app_main(void)
 {
@@ -51,16 +16,42 @@ void app_main(void)
     }
 
     lcd_init();
-
-    if (sd_ret == ESP_OK) {
-        display_picture_from_sd();
-        serial_file_init();
-    }
-
     ft6336_init();
     ESP_LOGI(TAG, "Ready");
 
+    int16_t last_cx = -1, last_cy = -1;
+
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        ft6336_point_t pt;
+        if (!ft6336_wait_touch(&pt)) continue;
+
+        int16_t tx = 239 - pt.x;
+        int16_t ty = 319 - pt.y;
+
+        while (1) {
+            ft6336_touch_data_t touch;
+            ft6336_read(&touch);
+
+            if (touch.num_touches > 0) {
+                tx = 239 - touch.points[0].x;
+                ty = 319 - touch.points[0].y;
+
+                lcd_move_cross(last_cx, last_cy, tx, ty);
+                last_cx = tx;
+                last_cy = ty;
+            } else {
+                static int zero_count;
+                if (++zero_count >= 5) {
+                    zero_count = 0;
+                    break;
+                }
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
+        lcd_clear_cross(last_cx, last_cy);
+        last_cx = last_cy = -1;
+        ft6336_enter_monitor();
     }
 }
