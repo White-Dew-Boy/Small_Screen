@@ -6,6 +6,7 @@ idf_component_register(
         "sd_card.c"
         "key.c"
         "rgb_led.c"
+        "gpa.c"
     
     INCLUDE_DIRS 
         "."

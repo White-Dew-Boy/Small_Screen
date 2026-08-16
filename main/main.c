@@ -6,13 +6,13 @@
 #include "ft6336.h"
 #include "sd_card.h"
 #include "rgb_led.h"
+#include "gpa.h"
 #include "esp_heap_caps.h"
 #include <inttypes.h>
 
 static const char *TAG = "app_main";
 
 #define KEY1_GPIO  GPIO_NUM_4
-#define GPA3_GPIO  GPIO_NUM_11
 
 #define RGB_LED_BRIGHTNESS  255
 
@@ -65,15 +65,8 @@ void app_main(void)
     gpio_config(&key1_cfg);
     gpio_set_level(KEY1_GPIO, 1);
 
-    gpio_config_t gpa3_cfg = {
-        .pin_bit_mask = BIT64(GPA3_GPIO),
-        .mode         = GPIO_MODE_OUTPUT,
-        .pull_up_en   = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&gpa3_cfg);
-    gpio_set_level(GPA3_GPIO, 1);
+    ESP_ERROR_CHECK(gpa_init());
+    ESP_ERROR_CHECK(gpa_power_on(GPA_ID_LCD));
 
     esp_err_t sd_ret = sd_card_init();
     if (sd_ret != ESP_OK) {
