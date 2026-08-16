@@ -1,6 +1,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/gpio.h"
 #include "lcd_driver.h"
 #include "ft6336.h"
 #include "sd_card.h"
@@ -9,8 +10,31 @@
 
 static const char *TAG = "app_main";
 
+#define KEY1_GPIO  GPIO_NUM_4
+#define GPA3_GPIO  GPIO_NUM_11
+
 void app_main(void)
 {
+    gpio_config_t key1_cfg = {
+        .pin_bit_mask = BIT64(KEY1_GPIO),
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&key1_cfg);
+    gpio_set_level(KEY1_GPIO, 1);
+
+    gpio_config_t gpa3_cfg = {
+        .pin_bit_mask = BIT64(GPA3_GPIO),
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&gpa3_cfg);
+    gpio_set_level(GPA3_GPIO, 1);
+
     esp_err_t sd_ret = sd_card_init();
     if (sd_ret != ESP_OK) {
         ESP_LOGW(TAG, "SD card not available (%s), continuing without SD",
