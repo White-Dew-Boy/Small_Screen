@@ -5,6 +5,7 @@ idf_component_register(
         "lcd_driver.c" 
         "sd_card.c"
         "key.c"
+        "rgb_led.c"
     
     INCLUDE_DIRS 
         "."
@@ -15,4 +16,5 @@ idf_component_register(
         driver 
         fatfs 
         sdmmc
+        led_strip
 )
