@@ -1,19 +1,21 @@
 idf_component_register(
     SRCS 
         "main.c" 
-        "ft6336.c" 
-        "i2c_bus.c"
-        "mpu6050.c"
-        "lcd_driver.c" 
-        "sd_card.c"
-        "key.c"
-        "rgb_led.c"
-        "power.c"
-        "lv_port_disp.c"
-        "lv_port_indev.c"
+        "gui/lv_port_disp.c"
+        "gui/lv_port_indev.c"
+        "drivers/ft6336.c"
+        "drivers/i2c_bus.c"
+        "drivers/key.c"
+        "drivers/lcd_driver.c"
+        "drivers/mpu6050.c"
+        "drivers/power.c"
+        "drivers/rgb_led.c"
+        "drivers/sd_card.c"
     
     INCLUDE_DIRS 
         "."
+        "gui"
+        "drivers"
                     
     REQUIRES 
         esp_lcd 
