@@ -1,54 +1,78 @@
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "lvgl.h"
+#include "lv_port_disp.h"
+#include "lv_port_indev.h"
 #include "lcd_driver.h"
 #include "ft6336.h"
-#include "mpu6050.h"
 #include "sd_card.h"
-#include "rgb_led.h"
 #include "power.h"
-#include "esp_heap_caps.h"
-#include <inttypes.h>
 
 static const char *TAG = "app_main";
 
-#define RGB_LED_BRIGHTNESS  255
+static lv_obj_t *touch_dot;
+static lv_obj_t *count_label;
+static uint32_t click_count;
 
-static void hsv_to_rgb(uint16_t hue, uint8_t sat, uint8_t val,
-                       uint8_t *r, uint8_t *g, uint8_t *b)
+static void lvgl_task(void *arg)
 {
-    if (sat == 0) {
-        *r = *g = *b = val;
-        return;
-    }
-
-    uint8_t region = (uint8_t)(hue / 60);
-    uint8_t rem = (uint8_t)(hue % 60);
-    uint8_t p = (uint8_t)((uint16_t)val * (255 - sat) / 255);
-    uint8_t q = (uint8_t)((uint16_t)val * (255 - (uint16_t)sat * rem / 60) / 255);
-    uint8_t t = (uint8_t)((uint16_t)val * (255 - (uint16_t)sat * (60 - rem) / 60) / 255);
-
-    switch (region) {
-        case 0: *r = val; *g = t;   *b = p;   break;
-        case 1: *r = q;   *g = val; *b = p;   break;
-        case 2: *r = p;   *g = val; *b = t;   break;
-        case 3: *r = p;   *g = q;   *b = val; break;
-        case 4: *r = t;   *g = p;   *b = val; break;
-        default: *r = val; *g = p;  *b = q;   break;
+    (void)arg;
+    bool hwm_logged = false;
+    while (1) {
+        if (!hwm_logged) {
+            hwm_logged = true;
+            ESP_LOGI(TAG, "LVGL task stack high water: %lu",
+                     (unsigned long)uxTaskGetStackHighWaterMark(NULL));
+        }
+        lv_timer_handler();
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 
-static void rgb_led_anim_task(void *arg)
+static void move_dot_cb(lv_timer_t *timer)
 {
-    uint16_t hue = 0;
-    while (1) {
-        uint8_t r, g, b;
-        hsv_to_rgb(hue, 255, RGB_LED_BRIGHTNESS, &r, &g, &b);
-        rgb_led_set_all(r, g, b);
-        rgb_led_refresh();
-        hue = (hue + 1) % 360;
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
+    (void)timer;
+    lv_indev_t *indev = lv_port_indev_get();
+    if (indev == NULL) return;
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    lv_obj_set_pos(touch_dot, p.x - 10, p.y - 10);
+}
+
+static void btn_click_cb(lv_event_t *e)
+{
+    (void)e;
+    click_count++;
+    lv_label_set_text_fmt(count_label, "Tap: %lu", (unsigned long)click_count);
+}
+
+static void ui_demo_create(void)
+{
+    lv_obj_t *scr = lv_scr_act();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
+
+    lv_obj_t *title = lv_label_create(scr);
+    lv_label_set_text(title, "LVGL 8.3.11 OK");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 24);
+
+    lv_obj_t *btn = lv_btn_create(scr);
+    lv_obj_set_size(btn, 160, 48);
+    lv_obj_align(btn, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_event_cb(btn, btn_click_cb, LV_EVENT_CLICKED, NULL);
+
+    count_label = lv_label_create(btn);
+    lv_label_set_text(count_label, "Tap: 0");
+    lv_obj_center(count_label);
+
+    touch_dot = lv_obj_create(scr);
+    lv_obj_set_size(touch_dot, 20, 20);
+    lv_obj_set_style_bg_color(touch_dot, lv_color_hex(0xFF4444), 0);
+    lv_obj_set_style_radius(touch_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(touch_dot, 0, 0);
+
+    lv_timer_create(move_dot_cb, 30, NULL);
 }
 
 void app_main(void)
@@ -65,45 +89,16 @@ void app_main(void)
     lcd_init();
     ft6336_init();
 
-    ESP_LOGI(TAG, "Free heap: internal=%" PRIu32 " KB, PSRAM=%" PRIu32 " KB",
-             esp_get_free_internal_heap_size() / 1024,
-             esp_get_free_heap_size() / 1024);
+    lv_init();
+    ESP_ERROR_CHECK(lv_port_tick_init());
+    ESP_ERROR_CHECK(lv_port_disp_init());
+    ESP_ERROR_CHECK(lv_port_indev_init());
 
-    ESP_LOGI(TAG, "Ready");
+    ui_demo_create();
 
-    int16_t last_cx = -1, last_cy = -1;
+    ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
+             (unsigned long)esp_get_free_internal_heap_size() / 1024,
+             (unsigned long)esp_get_free_heap_size() / 1024);
 
-    while (1) {
-        ft6336_point_t pt;
-        if (!ft6336_wait_touch(&pt)) continue;
-
-        int16_t tx = 239 - pt.x;
-        int16_t ty = 319 - pt.y;
-
-        while (1) {
-            ft6336_touch_data_t touch;
-            ft6336_read(&touch);
-
-            if (touch.num_touches > 0) {
-                tx = 239 - touch.points[0].x;
-                ty = 319 - touch.points[0].y;
-
-                lcd_move_cross(last_cx, last_cy, tx, ty);
-                last_cx = tx;
-                last_cy = ty;
-            } else {
-                static int zero_count;
-                if (++zero_count >= 5) {
-                    zero_count = 0;
-                    break;
-                }
-            }
-
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-
-        lcd_clear_cross(last_cx, last_cy);
-        last_cx = last_cy = -1;
-        ft6336_enter_monitor();
-    }
+    xTaskCreatePinnedToCore(lvgl_task, "lvgl_task", 7168, NULL, 5, NULL, 0);
 }

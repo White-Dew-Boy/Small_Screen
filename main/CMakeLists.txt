@@ -9,6 +9,8 @@ idf_component_register(
         "key.c"
         "rgb_led.c"
         "power.c"
+        "lv_port_disp.c"
+        "lv_port_indev.c"
     
     INCLUDE_DIRS 
         "."
@@ -20,4 +22,5 @@ idf_component_register(
         fatfs 
         sdmmc
         led_strip
+        esp_timer
 )
