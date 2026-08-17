@@ -7,8 +7,6 @@
 #include "freertos/task.h"
 #include "driver/spi_master.h"
 #include "driver/ledc.h"
-#include <string.h>
-#include <stdlib.h>
 
 #define LCD_HOST   SPI3_HOST
 #define LCD_MOSI   38
@@ -21,9 +19,6 @@
 
 static const char *TAG = "lcd_driver";
 esp_lcd_panel_handle_t panel_handle;
-
-#define LCD_H_RES  240
-#define LCD_V_RES  320
 
 void gb_swap_buf(uint16_t *pixels, int count)
 {
@@ -70,7 +65,7 @@ esp_err_t lcd_driver_init(void)
     vTaskDelay(pdMS_TO_TICKS(150));
     ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(io_handle, 0x21, NULL, 0));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, false, true));
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, true, false));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
     ledc_timer_config_t ledc_timer = {
@@ -97,109 +92,7 @@ esp_err_t lcd_driver_init(void)
     return ESP_OK;
 }
 
-static uint16_t *fb;
-
-static void fill_rect(int x, int y, int w, int h, uint16_t color)
-{
-    int x1 = x < 0 ? 0 : x;
-    int y1 = y < 0 ? 0 : y;
-    int x2 = x + w > LCD_H_RES ? LCD_H_RES : x + w;
-    int y2 = y + h > LCD_V_RES ? LCD_V_RES : y + h;
-    for (int row = y1; row < y2; row++)
-        for (int col = x1; col < x2; col++)
-            fb[row * LCD_H_RES + col] = color;
-}
-
-static void flush_rect(int x, int y, int w, int h)
-{
-    int count = w * h;
-    uint16_t *tmp = malloc(count * sizeof(uint16_t));
-    if (!tmp) return;
-    for (int row = 0; row < h; row++)
-        memcpy(&tmp[row * w], &fb[(y + row) * LCD_H_RES + x], w * sizeof(uint16_t));
-    gb_swap_buf(tmp, count);
-    esp_lcd_panel_draw_bitmap(panel_handle, x, y, x + w, y + h, tmp);
-    free(tmp);
-}
-
 esp_err_t lcd_init(void)
 {
-    esp_err_t ret = lcd_driver_init();
-    if (ret != ESP_OK) return ret;
-
-    fb = calloc(1, LCD_H_RES * LCD_V_RES * sizeof(uint16_t));
-    assert(fb);
-    flush_rect(0, 0, LCD_H_RES, LCD_V_RES);
-    return ESP_OK;
-}
-
-void lcd_fill_screen(uint16_t color)
-{
-    for (int i = 0; i < LCD_H_RES * LCD_V_RES; i++) fb[i] = color;
-    flush_rect(0, 0, LCD_H_RES, LCD_V_RES);
-}
-
-static void erase_region(int16_t cx, int16_t cy)
-{
-    fill_rect(cx - 20, cy - 20, 40, 40, 0x0000);
-}
-
-static void draw_cross(int16_t cx, int16_t cy, uint16_t color)
-{
-    fill_rect(cx - 20, cy - 2, 40, 4, color);
-    fill_rect(cx - 2, cy - 20, 4, 40, color);
-}
-
-void lcd_draw_cross(int16_t cx, int16_t cy, uint16_t color)
-{
-    if (cx < 20) cx = 20;
-    if (cx > LCD_H_RES - 21) cx = LCD_H_RES - 21;
-    if (cy < 20) cy = 20;
-    if (cy > LCD_V_RES - 21) cy = LCD_V_RES - 21;
-
-    draw_cross(cx, cy, color);
-    flush_rect(cx - 20, cy - 20, 40, 40);
-}
-
-void lcd_move_cross(int16_t old_cx, int16_t old_cy,
-                    int16_t new_cx, int16_t new_cy)
-{
-    if (new_cx < 20) new_cx = 20;
-    if (new_cx > LCD_H_RES - 21) new_cx = LCD_H_RES - 21;
-    if (new_cy < 20) new_cy = 20;
-    if (new_cy > LCD_V_RES - 21) new_cy = LCD_V_RES - 21;
-
-    int nx0 = new_cx - 20, ny0 = new_cy - 20;
-
-    if (old_cx >= 0) {
-        if (old_cx < 20) old_cx = 20;
-        if (old_cx > LCD_H_RES - 21) old_cx = LCD_H_RES - 21;
-        if (old_cy < 20) old_cy = 20;
-        if (old_cy > LCD_V_RES - 21) old_cy = LCD_V_RES - 21;
-
-        int ox0 = old_cx - 20, oy0 = old_cy - 20;
-        erase_region(old_cx, old_cy);
-
-        int x1 = ox0 < nx0 ? ox0 : nx0;
-        int y1 = oy0 < ny0 ? oy0 : ny0;
-        int x2 = ox0 + 40 > nx0 + 40 ? ox0 + 40 : nx0 + 40;
-        int y2 = oy0 + 40 > ny0 + 40 ? oy0 + 40 : ny0 + 40;
-
-        draw_cross(new_cx, new_cy, 0xF800);
-        flush_rect(x1, y1, x2 - x1, y2 - y1);
-    } else {
-        draw_cross(new_cx, new_cy, 0xF800);
-        flush_rect(nx0, ny0, 40, 40);
-    }
-}
-
-void lcd_clear_cross(int16_t cx, int16_t cy)
-{
-    if (cx < 20) cx = 20;
-    if (cx > LCD_H_RES - 21) cx = LCD_H_RES - 21;
-    if (cy < 20) cy = 20;
-    if (cy > LCD_V_RES - 21) cy = LCD_V_RES - 21;
-
-    erase_region(cx, cy);
-    flush_rect(cx - 20, cy - 20, 40, 40);
+    return lcd_driver_init();
 }
