@@ -13,6 +13,7 @@ static TaskHandle_t touch_task_handle;
 
 static void IRAM_ATTR touch_isr(void *arg)
 {
+    if (touch_task_handle == NULL) return;
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     vTaskNotifyGiveFromISR(touch_task_handle, &xHigherPriorityTaskWoken);
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
@@ -82,8 +83,6 @@ esp_err_t ft6336_init(void)
     ESP_LOGI(TAG, "FT6336G initialized (I2C addr=0x%02x, chip_id=0x%02x)",
              FT6336_I2C_ADDR, chip_id);
 
-    touch_task_handle = xTaskGetCurrentTaskHandle();
-
     gpio_config_t int_cfg = {
         .pin_bit_mask = BIT64(FT6336_INT),
         .mode         = GPIO_MODE_INPUT,
@@ -97,6 +96,11 @@ esp_err_t ft6336_init(void)
     ft6336_enter_monitor();
 
     return ESP_OK;
+}
+
+void ft6336_bind_task(TaskHandle_t handle)
+{
+    touch_task_handle = handle;
 }
 
 void ft6336_read(ft6336_touch_data_t *data)
@@ -114,16 +118,23 @@ void ft6336_read(ft6336_touch_data_t *data)
     }
     data->num_touches = touches;
 
-    uint8_t buf[6];
+    uint8_t buf[6] = {0};
     if (i2c_read_reg(FT6336_REG_P1_XH, buf, 6) == ESP_OK) {
         data->points[0].x = ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
         data->points[0].y = ((uint16_t)(buf[2] & 0x0F) << 8) | buf[3];
+    } else {
+        /* Coordinate read failed: report no touch rather than garbage */
+        data->num_touches = 0;
+        return;
     }
 
     if (touches >= 2) {
         if (i2c_read_reg(FT6336_REG_P2_XH, buf, 6) == ESP_OK) {
             data->points[1].x = ((uint16_t)(buf[0] & 0x0F) << 8) | buf[1];
             data->points[1].y = ((uint16_t)(buf[2] & 0x0F) << 8) | buf[3];
+        } else {
+            /* Second point unreadable: degrade to single touch */
+            data->num_touches = 1;
         }
     }
 }

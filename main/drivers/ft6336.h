@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "hal/gpio_types.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 /*============================================================================
  * Pin Configuration
@@ -72,6 +74,8 @@ typedef struct {
  * @return ESP_OK on success, ESP_ERR_NOT_FOUND if chip not detected.
  */
 esp_err_t ft6336_init(void);
+
+void ft6336_bind_task(TaskHandle_t handle);
 
 void ft6336_read(ft6336_touch_data_t *data);
 
