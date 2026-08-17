@@ -1,15 +1,14 @@
 #include "ft6336.h"
+#include "i2c_bus.h"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/i2c_master.h"
 #include "driver/gpio.h"
 
 static const char *TAG = "ft6336";
 
-static i2c_master_bus_handle_t bus_handle;
-static i2c_master_dev_handle_t  dev_handle;
+static i2c_master_dev_handle_t dev_handle;
 static TaskHandle_t touch_task_handle;
 
 static void IRAM_ATTR touch_isr(void *arg)
@@ -51,37 +50,15 @@ esp_err_t ft6336_init(void)
 
     hardware_reset();
 
-    gpio_config_t i2c_pin_cfg = {
-        .pin_bit_mask = BIT64(FT6336_I2C_SDA) | BIT64(FT6336_I2C_SCL),
-        .mode         = GPIO_MODE_INPUT_OUTPUT_OD,
-        .pull_up_en   = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&i2c_pin_cfg);
-
-    i2c_master_bus_config_t bus_cfg = {
-        .i2c_port     = FT6336_I2C_PORT,
-        .sda_io_num   = FT6336_I2C_SDA,
-        .scl_io_num   = FT6336_I2C_SCL,
-        .clk_source   = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = false,
-    };
-    ret = i2c_new_master_bus(&bus_cfg, &bus_handle);
+    ret = i2c_bus_init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2C bus init failed: %d", ret);
+        ESP_LOGE(TAG, "I2C bus init failed: %s", esp_err_to_name(ret));
         return ret;
     }
 
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address  = FT6336_I2C_ADDR,
-        .scl_speed_hz    = FT6336_I2C_FREQ_HZ,
-    };
-    ret = i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle);
+    ret = i2c_bus_add_device(FT6336_I2C_ADDR, FT6336_I2C_FREQ_HZ, &dev_handle);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2C add device failed: %d", ret);
+        ESP_LOGE(TAG, "I2C add device failed: %s", esp_err_to_name(ret));
         return ret;
     }
 

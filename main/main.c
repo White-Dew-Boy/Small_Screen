@@ -3,6 +3,7 @@
 #include "freertos/task.h"
 #include "lcd_driver.h"
 #include "ft6336.h"
+#include "mpu6050.h"
 #include "sd_card.h"
 #include "rgb_led.h"
 #include "power.h"
@@ -66,6 +67,7 @@ void app_main(void)
 
     lcd_init();
     ft6336_init();
+    mpu6050_probe();
 
     ESP_LOGI(TAG, "Free heap: internal=%" PRIu32 " KB, PSRAM=%" PRIu32 " KB",
              esp_get_free_internal_heap_size() / 1024,
