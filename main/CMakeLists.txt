@@ -7,7 +7,6 @@ idf_component_register(
         "drivers/i2c_bus.c"
         "drivers/key.c"
         "drivers/lcd_driver.c"
-        "drivers/mpu6050.c"
         "drivers/power.c"
         "drivers/rgb_led.c"
         "drivers/sd_card.c"
