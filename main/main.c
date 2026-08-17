@@ -55,9 +55,6 @@ void app_main(void)
 {
     ESP_ERROR_CHECK(power_init());
     ESP_ERROR_CHECK(power_on(POWER_ID_LCD));
-    ESP_ERROR_CHECK(power_on(POWER_ID_IMU));
-    ESP_ERROR_CHECK(power_on(POWER_ID_TEMP));
-    ESP_ERROR_CHECK(power_on(POWER_ID_AUDIO));
 
     esp_err_t sd_ret = sd_card_init();
     if (sd_ret != ESP_OK) {
@@ -67,7 +64,6 @@ void app_main(void)
 
     lcd_init();
     ft6336_init();
-    mpu6050_probe();
 
     ESP_LOGI(TAG, "Free heap: internal=%" PRIu32 " KB, PSRAM=%" PRIu32 " KB",
              esp_get_free_internal_heap_size() / 1024,
