@@ -25,6 +25,13 @@ static void lvgl_task(void *arg)
 {
     (void)arg;
     bool hwm_logged = false;
+
+    /* With CONFIG_FREERTOS_HZ=100, pdMS_TO_TICKS(5) truncates to 0 ticks and
+     * vTaskDelay(0) never blocks: this task would then keep CPU0 busy forever,
+     * starve the IDLE0 task, and trip the task watchdog every 5 s.
+     * Guarantee at least one tick of real blocking. */
+    const TickType_t delay_ticks = pdMS_TO_TICKS(5) > 0 ? pdMS_TO_TICKS(5) : 1;
+
     while (1) {
         if (!hwm_logged) {
             hwm_logged = true;
@@ -32,7 +39,7 @@ static void lvgl_task(void *arg)
                      (unsigned long)uxTaskGetStackHighWaterMark(NULL));
         }
         lv_timer_handler();
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(delay_ticks);
     }
 }
 
