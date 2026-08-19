@@ -10,6 +10,8 @@ idf_component_register(
         "drivers/power.c"
         "drivers/rgb_led.c"
         "drivers/sd_card.c"
+        "drivers/mpu6050.c"
+        "drivers/shtc3.c"
     
     INCLUDE_DIRS 
         "."
