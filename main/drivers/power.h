@@ -7,10 +7,10 @@
  * Pin Configuration (from materials/ESP32模块GPIO连接关系.md)
  *============================================================================*/
 #define POWER_KEY1_GPIO   GPIO_NUM_4    /* MP2636 MODE power-on latch */
-#define POWER_IMU_GPIO    GPIO_NUM_7    /* GPA0: attitude sensor power */
-#define POWER_TEMP_GPIO   GPIO_NUM_15   /* GPA1: temperature sensor power */
-#define POWER_AUDIO_GPIO  GPIO_NUM_10   /* GPA2: MAX98357A audio amp power */
-#define POWER_LCD_GPIO    GPIO_NUM_11   /* GPA3: LCD module power */
+#define POWER_IMU_GPIO    GPIO_NUM_15    /* GPA0: attitude sensor power */
+#define POWER_TEMP_GPIO   GPIO_NUM_7   /* GPA1: temperature sensor power */
+#define POWER_AUDIO_GPIO  GPIO_NUM_11   /* GPA2: MAX98357A audio amp power */
+#define POWER_LCD_GPIO    GPIO_NUM_10   /* GPA3: LCD module power */
 
 /*============================================================================
  * Data Structures
