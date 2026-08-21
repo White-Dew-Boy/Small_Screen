@@ -4,6 +4,7 @@ idf_component_register(
         "gui/lv_port_disp.c"
         "gui/lv_port_indev.c"
         "gui/ui_shtc3.c"
+        "gui/ui_color_table.c"
         "drivers/ft6336.c"
         "drivers/i2c_bus.c"
         "drivers/key.c"
