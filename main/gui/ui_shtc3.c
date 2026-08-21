@@ -43,16 +43,21 @@ lv_obj_t *ui_shtc3_create(void)
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
+    /* The default LVGL theme renders text in gray — set white explicitly
+     * so the labels are clearly readable on the dark background. */
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "SHTC3 Sensor");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
 
     temp_label = lv_label_create(scr);
     lv_label_set_text(temp_label, "--.- C");
+    lv_obj_set_style_text_color(temp_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(temp_label, LV_ALIGN_CENTER, 0, -30);
 
     humi_label = lv_label_create(scr);
     lv_label_set_text(humi_label, "--.- %RH");
+    lv_obj_set_style_text_color(humi_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(humi_label, LV_ALIGN_CENTER, 0, 20);
 
     /* Refresh labels every 500ms from the LVGL thread */
