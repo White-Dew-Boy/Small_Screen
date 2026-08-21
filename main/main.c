@@ -4,15 +4,31 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "lv_port_disp.h"
+#include "lv_port_indev.h"
 #include "lcd_driver.h"
 #include "sd_card.h"
 #include "power.h"
 #include "drivers/i2c_bus.h"
 #include "drivers/mpu6050.h"
 #include "drivers/shtc3.h"
+#include "drivers/key.h"
 #include "ui_shtc3.h"
+#include "ui_color_table.h"
 
 static const char *TAG = "app_main";
+
+/* UI screens, created once and switched with KEY2 / KEY3 */
+static lv_obj_t *scr_shtc3;
+static lv_obj_t *scr_color;
+
+/* Page-switch request produced by the key task and consumed by the LVGL task
+ * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
+typedef enum {
+    SWITCH_NONE = 0,
+    SWITCH_COLOR,
+    SWITCH_SHTC3,
+} switch_req_t;
+static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
 static void lvgl_task(void *arg)
 {
@@ -31,8 +47,35 @@ static void lvgl_task(void *arg)
             ESP_LOGI(TAG, "LVGL task stack high water: %lu",
                      (unsigned long)uxTaskGetStackHighWaterMark(NULL));
         }
+
+        /* Handle pending page switch from the LVGL thread */
+        switch_req_t req = s_switch_req;
+        if (req != SWITCH_NONE) {
+            s_switch_req = SWITCH_NONE;
+            if (req == SWITCH_COLOR) {
+                lv_scr_load(scr_color);
+            } else if (req == SWITCH_SHTC3) {
+                lv_scr_load(scr_shtc3);
+            }
+        }
+
         lv_timer_handler();
         vTaskDelay(delay_ticks);
+    }
+}
+
+/* Scan the two buttons; page switches are applied by the LVGL task. */
+static void key_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        key_scan();
+        if (key_pressed_edge(KEY_ID_2)) {
+            s_switch_req = SWITCH_COLOR;
+        } else if (key_pressed_edge(KEY_ID_3)) {
+            s_switch_req = SWITCH_SHTC3;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -89,16 +132,24 @@ void app_main(void)
     // LCD (uses the SPI bus created by sd_card_init())
     ESP_ERROR_CHECK(lcd_init());
 
+    // Buttons (KEY2: color table page, KEY3: sensor page)
+    ESP_ERROR_CHECK(key_init());
+
     // LVGL
     lv_init();
     ESP_ERROR_CHECK(lv_port_tick_init());
     ESP_ERROR_CHECK(lv_port_disp_init());
+    ESP_ERROR_CHECK(lv_port_indev_init());
 
-    ui_shtc3_create();
+    // Build both pages, start on the sensor dashboard
+    scr_shtc3 = ui_shtc3_create();
+    scr_color = ui_color_table_create();
+    lv_scr_load(scr_shtc3);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,
              (unsigned long)esp_get_free_heap_size() / 1024);
 
     xTaskCreatePinnedToCore(lvgl_task, "lvgl_task", 7168, NULL, 5, NULL, 0);
+    xTaskCreate(key_task, "key_task", 2048, NULL, 6, NULL);
 }

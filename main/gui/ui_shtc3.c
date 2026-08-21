@@ -36,11 +36,11 @@ static void shtc3_display_timer_cb(lv_timer_t *timer)
 }
 
 /**
- * @brief Build the SHTC3 sensor dashboard on the LCD.
+ * @brief Build the SHTC3 sensor dashboard on its own screen.
  */
-void ui_shtc3_create(void)
+lv_obj_t *ui_shtc3_create(void)
 {
-    lv_obj_t *scr = lv_scr_act();
+    lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
@@ -57,6 +57,8 @@ void ui_shtc3_create(void)
 
     /* Refresh labels every 500ms from the LVGL thread */
     lv_timer_create(shtc3_display_timer_cb, 500, NULL);
+
+    return scr;
 }
 
 void ui_shtc3_set_data(float temp_c, float humi_rh)

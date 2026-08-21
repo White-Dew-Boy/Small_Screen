@@ -1,10 +1,12 @@
 #pragma once
+#include "lvgl.h"
 
 /**
- * @brief Create the SHTC3 sensor dashboard UI on the current LVGL screen.
+ * @brief Create the SHTC3 sensor dashboard UI.
  *        Must be called after lv_init() and lv_port_disp_init().
+ * @return The created screen object (not loaded yet — use lv_scr_load()).
  */
-void ui_shtc3_create(void);
+lv_obj_t *ui_shtc3_create(void);
 
 /**
  * @brief Publish fresh sensor data from the sensor task.
