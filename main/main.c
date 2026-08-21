@@ -10,16 +10,9 @@
 #include "drivers/i2c_bus.h"
 #include "drivers/mpu6050.h"
 #include "drivers/shtc3.h"
+#include "ui_shtc3.h"
 
 static const char *TAG = "app_main";
-
-/* SHTC3 sensor data shared with LVGL (written by shtc3_task, read by LVGL timer) */
-static volatile float s_temp_c = 0.0f;
-static volatile float s_humi_rh = 0.0f;
-static volatile bool s_shtc3_valid = false;
-
-static lv_obj_t *temp_label;
-static lv_obj_t *humi_label;
 
 static void lvgl_task(void *arg)
 {
@@ -43,54 +36,6 @@ static void lvgl_task(void *arg)
     }
 }
 
-/**
- * @brief LVGL timer callback: refresh temperature/humidity labels on screen.
- *        Runs inside lv_timer_handler(), so it is safe to touch LVGL objects here.
- */
-static void shtc3_display_timer_cb(lv_timer_t *timer)
-{
-    (void)timer;
-    if (!s_shtc3_valid) {
-        return;
-    }
-
-    /* LV_SPRINTF_USE_FLOAT is disabled, format float manually as "int.dec" */
-    int temp_int = (int)s_temp_c;
-    int temp_dec = (int)((s_temp_c - temp_int) * 10);
-    if (temp_dec < 0) temp_dec = -temp_dec;
-
-    int humi_int = (int)s_humi_rh;
-    int humi_dec = (int)((s_humi_rh - humi_int) * 10);
-    if (humi_dec < 0) humi_dec = -humi_dec;
-
-    lv_label_set_text_fmt(temp_label, "%d.%d C", temp_int, temp_dec);
-    lv_label_set_text_fmt(humi_label, "%d.%d %%RH", humi_int, humi_dec);
-}
-
-/**
- * @brief Build the SHTC3 sensor dashboard on the LCD.
- */
-static void ui_shtc3_create(void)
-{
-    lv_obj_t *scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
-
-    lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "SHTC3 Sensor");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
-
-    temp_label = lv_label_create(scr);
-    lv_label_set_text(temp_label, "--.- C");
-    lv_obj_align(temp_label, LV_ALIGN_CENTER, 0, -30);
-
-    humi_label = lv_label_create(scr);
-    lv_label_set_text(humi_label, "--.- %RH");
-    lv_obj_align(humi_label, LV_ALIGN_CENTER, 0, 20);
-
-    /* Refresh labels every 500ms from the LVGL thread */
-    lv_timer_create(shtc3_display_timer_cb, 500, NULL);
-}
-
 static void shtc3_task(void *arg)
 {
     (void)arg;
@@ -102,15 +47,13 @@ static void shtc3_task(void *arg)
         esp_err_t read_ret = shtc3_getdata(&raw_humi, &raw_temp);
         if (read_ret != ESP_OK) {
             ESP_LOGE(TAG, "SHTC3 read failed: %s", esp_err_to_name(read_ret));
-            s_shtc3_valid = false;
+            ui_shtc3_set_invalid();
         } else {
             shtc3_caculate_data(&raw_humi, &raw_temp, &humi, &temp);
             ESP_LOGI(TAG, "SHTC3 data - Temperature: %.2f C, Humidity: %.2f %%RH", temp, humi);
 
-            /* Publish to the LVGL thread via globals (LVGL is not thread-safe) */
-            s_temp_c = temp;
-            s_humi_rh = humi;
-            s_shtc3_valid = true;
+            /* Publish to the LVGL thread (LVGL is not thread-safe) */
+            ui_shtc3_set_data(temp, humi);
         }
 
         vTaskDelay(pdMS_TO_TICKS(2000));
