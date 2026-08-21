@@ -11,6 +11,7 @@
 #include "drivers/i2c_bus.h"
 #include "drivers/mpu6050.h"
 #include "drivers/shtc3.h"
+#include "drivers/ft6336.h"
 #include "drivers/key.h"
 #include "ui_shtc3.h"
 #include "ui_color_table.h"
@@ -111,6 +112,15 @@ void app_main(void)
 
     // Initialize I2C bus
     ESP_ERROR_CHECK(i2c_bus_init());
+
+    // Initialize FT6336 capacitive touch controller (non-fatal)
+    esp_err_t ft6336_ret = ft6336_init();
+    if (ft6336_ret != ESP_OK) {
+        ESP_LOGW(TAG, "FT6336 touch not available (%s), touch disabled",
+                 esp_err_to_name(ft6336_ret));
+    } else {
+        ESP_LOGI(TAG, "FT6336 touch initialized");
+    }
 
     // Initialize SHTC3 temperature & humidity sensor
     esp_err_t shtc3_ret = shtc3_init();
