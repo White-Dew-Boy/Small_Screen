@@ -9,18 +9,23 @@
 #include "sd_card.h"
 #include "power.h"
 #include "drivers/i2c_bus.h"
-#include "drivers/mpu6050.h"
 #include "drivers/shtc3.h"
 #include "drivers/ft6336.h"
 #include "drivers/key.h"
+#include "drivers/wifi_manager.h"
+#if CONFIG_ENABLE_MPU6050
+#include "drivers/mpu6050.h"
+#endif
 #include "ui_shtc3.h"
 #include "ui_color_table.h"
+#include "ui_wifi.h"
 
 static const char *TAG = "app_main";
 
 /* UI screens, created once and switched with KEY2 / KEY3 */
 static lv_obj_t *scr_shtc3;
 static lv_obj_t *scr_color;
+static lv_obj_t *scr_wifi;
 
 /* Page-switch request produced by the key task and consumed by the LVGL task
  * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
@@ -28,6 +33,7 @@ typedef enum {
     SWITCH_NONE = 0,
     SWITCH_COLOR,
     SWITCH_SHTC3,
+    SWITCH_WIFI,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
@@ -57,6 +63,8 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_color);
             } else if (req == SWITCH_SHTC3) {
                 lv_scr_load(scr_shtc3);
+            } else if (req == SWITCH_WIFI) {
+                lv_scr_load(scr_wifi);
             }
         }
 
@@ -65,15 +73,27 @@ static void lvgl_task(void *arg)
     }
 }
 
-/* Scan the two buttons; page switches are applied by the LVGL task. */
+/* Scan the two buttons; page switches are applied by the LVGL task.
+ * KEY2 cycles through pages: sensor -> color -> wifi -> sensor ...
+ * KEY3 jumps back to the sensor dashboard. */
 static void key_task(void *arg)
 {
     (void)arg;
+    int cur_page = 0; /* 0 = SHTC3, 1 = COLOR, 2 = WIFI */
+
     while (1) {
         key_scan();
         if (key_pressed_edge(KEY_ID_2)) {
-            s_switch_req = SWITCH_COLOR;
+            cur_page = (cur_page + 1) % 3;
+            if (cur_page == 0) {
+                s_switch_req = SWITCH_SHTC3;
+            } else if (cur_page == 1) {
+                s_switch_req = SWITCH_COLOR;
+            } else {
+                s_switch_req = SWITCH_WIFI;
+            }
         } else if (key_pressed_edge(KEY_ID_3)) {
+            cur_page = 0;
             s_switch_req = SWITCH_SHTC3;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -109,6 +129,15 @@ void app_main(void)
     ESP_ERROR_CHECK(power_init());
     ESP_ERROR_CHECK(power_on(POWER_ID_TEMP));
     ESP_ERROR_CHECK(power_on(POWER_ID_LCD));
+
+    // Initialize WiFi (STA mode, connects in background, auto-reconnect)
+    // Non-fatal: the device keeps working without network access.
+    esp_err_t wifi_ret = wifi_manager_init();
+    if (wifi_ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi manager init failed: %s", esp_err_to_name(wifi_ret));
+    } else {
+        ESP_LOGI(TAG, "WiFi manager started");
+    }
 
     // Initialize I2C bus
     ESP_ERROR_CHECK(i2c_bus_init());
@@ -151,9 +180,10 @@ void app_main(void)
     ESP_ERROR_CHECK(lv_port_disp_init());
     ESP_ERROR_CHECK(lv_port_indev_init());
 
-    // Build both pages, start on the sensor dashboard
+    // Build all pages, start on the sensor dashboard
     scr_shtc3 = ui_shtc3_create();
     scr_color = ui_color_table_create();
+    scr_wifi = ui_wifi_create();
     lv_scr_load(scr_shtc3);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",

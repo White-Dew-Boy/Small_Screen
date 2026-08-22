@@ -1,0 +1,38 @@
+menu "WiFi Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "your_ssid"
+        help
+            SSID (network name) of the WiFi access point to connect to
+            in STA (station) mode.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "your_password"
+        help
+            Password of the WiFi access point. Leave empty for open
+            networks (max 63 characters).
+
+    config WIFI_MAX_RETRY
+        int "WiFi connection max retries"
+        default 10
+        range 1 100
+        help
+            Maximum number of connection attempts before giving up.
+            After this the station stops retrying until a manual
+            reconnect is requested.
+
+endmenu
+
+menu "Sensor Configuration"
+
+    config ENABLE_MPU6050
+        bool "Enable MPU6050 IMU sensor (disabled by default)"
+        default n
+        help
+            Compile and initialize the MPU6050 driver. When disabled,
+            the driver source is excluded from the build to save
+            flash/RAM and avoid probing the I2C bus.
+
+endmenu

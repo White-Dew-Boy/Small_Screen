@@ -5,6 +5,7 @@ idf_component_register(
         "gui/lv_port_indev.c"
         "gui/ui_shtc3.c"
         "gui/ui_color_table.c"
+        "gui/ui_wifi.c"
         "drivers/ft6336.c"
         "drivers/i2c_bus.c"
         "drivers/key.c"
@@ -12,8 +13,9 @@ idf_component_register(
         "drivers/power.c"
         "drivers/rgb_led.c"
         "drivers/sd_card.c"
-        "drivers/mpu6050.c"
         "drivers/shtc3.c"
+        "drivers/wifi_manager.c"
+        $<$<BOOL:${CONFIG_ENABLE_MPU6050}>:"drivers/mpu6050.c">
     
     INCLUDE_DIRS 
         "."
@@ -28,4 +30,8 @@ idf_component_register(
         sdmmc
         led_strip
         esp_timer
+        esp_wifi
+        esp_netif
+        esp_event
+        nvs_flash
 )
