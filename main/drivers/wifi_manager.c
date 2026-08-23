@@ -218,8 +218,11 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         }
 
         if (manual) {
-            /* User switched networks: reconnect immediately with the new
-             * credentials, without counting this as an auto-reconnect. */
+            /* User switched networks: apply the new credentials (they may
+             * not have been applied yet if the STA was still connecting,
+             * which forbids esp_wifi_set_config) and connect, without
+             * counting this as an auto-reconnect. */
+            creds_apply_to_wifi();
             s_retry_cnt = 0;
             set_state(WIFI_STATE_CONNECTING);
             esp_wifi_connect();
@@ -367,7 +370,6 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
 
     ESP_LOGI(TAG, "Saving credentials for \"%s\"", ssid);
     ESP_RETURN_ON_ERROR(creds_update(ssid, password), TAG, "NVS save failed");
-    ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "apply credentials failed");
 
     /* Mirror the new credentials as active */
     strlcpy(s_ssid, ssid, sizeof(s_ssid));
@@ -391,6 +393,7 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
     /* Connected to a different network: drop the link; the DISCONNECTED
      * handler reconnects immediately with the new credentials. */
     if (info.state == WIFI_STATE_CONNECTED) {
+        ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "apply credentials failed");
         ESP_LOGI(TAG, "Switching from \"%s\" to \"%s\"", info.ssid, ssid);
         set_state(WIFI_STATE_CONNECTING);
         s_manual_switch = true;
@@ -398,7 +401,18 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
         return ESP_OK;
     }
 
-    /* Not connected: start a fresh connection attempt. */
+    /* A connect/retry attempt is in progress: esp_wifi_set_config() is not
+     * allowed while the STA is connecting, so stop the attempt first and
+     * let the DISCONNECTED handler apply the new credentials and connect. */
+    if (info.state == WIFI_STATE_CONNECTING) {
+        ESP_LOGI(TAG, "Stopping in-progress connect to switch to \"%s\"", ssid);
+        s_manual_switch = true;
+        esp_wifi_disconnect();
+        return ESP_OK;
+    }
+
+    /* Not connected: apply and start a fresh connection attempt. */
+    ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "apply credentials failed");
     set_state(WIFI_STATE_CONNECTING);
     s_manual_switch = false;
     xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -452,8 +466,6 @@ esp_err_t wifi_manager_connect_saved(int idx)
     strlcpy(s_pass, cred->pass, sizeof(s_pass));
     s_has_creds = true;
 
-    ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "apply credentials failed");
-
     s_auto_reconnect = true;
     s_retry_cnt = 0;
     xSemaphoreTake(s_lock, portMAX_DELAY);
@@ -476,6 +488,7 @@ esp_err_t wifi_manager_connect_saved(int idx)
     /* Connected to a different network: drop the link; the DISCONNECTED
      * handler reconnects immediately with the new credentials. */
     if (info.state == WIFI_STATE_CONNECTED) {
+        ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "apply credentials failed");
         ESP_LOGI(TAG, "Switching from \"%s\" to \"%s\"", info.ssid,
                  cred->ssid);
         set_state(WIFI_STATE_CONNECTING);
@@ -484,7 +497,19 @@ esp_err_t wifi_manager_connect_saved(int idx)
         return ESP_OK;
     }
 
-    /* Not connected: start a fresh connection attempt. */
+    /* A connect/retry attempt is in progress: esp_wifi_set_config() is not
+     * allowed while the STA is connecting, so stop the attempt first and
+     * let the DISCONNECTED handler apply the new credentials and connect. */
+    if (info.state == WIFI_STATE_CONNECTING) {
+        ESP_LOGI(TAG, "Stopping in-progress connect to switch to \"%s\"",
+                 cred->ssid);
+        s_manual_switch = true;
+        esp_wifi_disconnect();
+        return ESP_OK;
+    }
+
+    /* Not connected: apply and start a fresh connection attempt. */
+    ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "apply credentials failed");
     set_state(WIFI_STATE_CONNECTING);
     s_manual_switch = false;
     esp_err_t ret = esp_wifi_connect();
