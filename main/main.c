@@ -13,29 +13,50 @@
 #include "drivers/ft6336.h"
 #include "drivers/key.h"
 #include "drivers/wifi_manager.h"
+#include "drivers/mqtt_manager.h"
 #if CONFIG_ENABLE_MPU6050
 #include "drivers/mpu6050.h"
 #endif
 #include "ui_shtc3.h"
-#include "ui_color_table.h"
 #include "ui_wifi.h"
+#include "ui_wifi_config.h"
+#include "ui_mqtt.h"
 
 static const char *TAG = "app_main";
 
 /* UI screens, created once and switched with KEY2 / KEY3 */
 static lv_obj_t *scr_shtc3;
-static lv_obj_t *scr_color;
 static lv_obj_t *scr_wifi;
+static lv_obj_t *scr_wifi_config;
+static lv_obj_t *scr_mqtt;
 
 /* Page-switch request produced by the key task and consumed by the LVGL task
  * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
 typedef enum {
     SWITCH_NONE = 0,
-    SWITCH_COLOR,
     SWITCH_SHTC3,
     SWITCH_WIFI,
+    SWITCH_WIFI_CONFIG,
+    SWITCH_MQTT,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
+
+/* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT).
+ * Shared with the WiFi config page callbacks so the cycle stays in sync. */
+static int s_cur_page = 0;
+
+/* Called from the WiFi status page "Configure" button (LVGL thread) */
+static void wifi_config_open(void)
+{
+    s_switch_req = SWITCH_WIFI_CONFIG;
+}
+
+/* Called from the WiFi config page back/connect (LVGL thread) */
+static void wifi_config_close(void)
+{
+    s_cur_page = 1; /* back to WIFI status page */
+    s_switch_req = SWITCH_WIFI;
+}
 
 static void lvgl_task(void *arg)
 {
@@ -59,12 +80,14 @@ static void lvgl_task(void *arg)
         switch_req_t req = s_switch_req;
         if (req != SWITCH_NONE) {
             s_switch_req = SWITCH_NONE;
-            if (req == SWITCH_COLOR) {
-                lv_scr_load(scr_color);
-            } else if (req == SWITCH_SHTC3) {
+            if (req == SWITCH_SHTC3) {
                 lv_scr_load(scr_shtc3);
             } else if (req == SWITCH_WIFI) {
                 lv_scr_load(scr_wifi);
+            } else if (req == SWITCH_WIFI_CONFIG) {
+                lv_scr_load(scr_wifi_config);
+            } else if (req == SWITCH_MQTT) {
+                lv_scr_load(scr_mqtt);
             }
         }
 
@@ -74,26 +97,25 @@ static void lvgl_task(void *arg)
 }
 
 /* Scan the two buttons; page switches are applied by the LVGL task.
- * KEY2 cycles through pages: sensor -> color -> wifi -> sensor ...
+ * KEY2 cycles through pages: sensor -> wifi -> mqtt -> sensor ...
  * KEY3 jumps back to the sensor dashboard. */
 static void key_task(void *arg)
 {
     (void)arg;
-    int cur_page = 0; /* 0 = SHTC3, 1 = COLOR, 2 = WIFI */
 
     while (1) {
         key_scan();
         if (key_pressed_edge(KEY_ID_2)) {
-            cur_page = (cur_page + 1) % 3;
-            if (cur_page == 0) {
+            s_cur_page = (s_cur_page + 1) % 3;
+            if (s_cur_page == 0) {
                 s_switch_req = SWITCH_SHTC3;
-            } else if (cur_page == 1) {
-                s_switch_req = SWITCH_COLOR;
-            } else {
+            } else if (s_cur_page == 1) {
                 s_switch_req = SWITCH_WIFI;
+            } else {
+                s_switch_req = SWITCH_MQTT;
             }
         } else if (key_pressed_edge(KEY_ID_3)) {
-            cur_page = 0;
+            s_cur_page = 0;
             s_switch_req = SWITCH_SHTC3;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -118,6 +140,9 @@ static void shtc3_task(void *arg)
 
             /* Publish to the LVGL thread (LVGL is not thread-safe) */
             ui_shtc3_set_data(temp, humi);
+
+            /* Publish to the MQTT broker (rate-limited internally) */
+            mqtt_manager_publish_telemetry(temp, humi);
         }
 
         vTaskDelay(pdMS_TO_TICKS(2000));
@@ -137,6 +162,15 @@ void app_main(void)
         ESP_LOGE(TAG, "WiFi manager init failed: %s", esp_err_to_name(wifi_ret));
     } else {
         ESP_LOGI(TAG, "WiFi manager started");
+    }
+
+    // MQTT client (starts automatically once WiFi is connected)
+    // Non-fatal: telemetry just stays local if the broker is unreachable.
+    esp_err_t mqtt_ret = mqtt_manager_init();
+    if (mqtt_ret != ESP_OK) {
+        ESP_LOGE(TAG, "MQTT manager init failed: %s", esp_err_to_name(mqtt_ret));
+    } else {
+        ESP_LOGI(TAG, "MQTT manager started");
     }
 
     // Initialize I2C bus
@@ -171,7 +205,7 @@ void app_main(void)
     // LCD (uses the SPI bus created by sd_card_init())
     ESP_ERROR_CHECK(lcd_init());
 
-    // Buttons (KEY2: color table page, KEY3: sensor page)
+    // Buttons (KEY2: cycle pages, KEY3: sensor page)
     ESP_ERROR_CHECK(key_init());
 
     // LVGL
@@ -182,9 +216,15 @@ void app_main(void)
 
     // Build all pages, start on the sensor dashboard
     scr_shtc3 = ui_shtc3_create();
-    scr_color = ui_color_table_create();
     scr_wifi = ui_wifi_create();
+    scr_wifi_config = ui_wifi_config_create();
+    scr_mqtt = ui_mqtt_create();
     lv_scr_load(scr_shtc3);
+
+    // WiFi status page "Configure" button -> config page
+    ui_wifi_set_config_cb(wifi_config_open);
+    // WiFi config page back / connect -> status page
+    ui_wifi_config_set_back_cb(wifi_config_close);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,

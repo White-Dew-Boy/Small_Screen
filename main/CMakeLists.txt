@@ -4,8 +4,9 @@ idf_component_register(
         "gui/lv_port_disp.c"
         "gui/lv_port_indev.c"
         "gui/ui_shtc3.c"
-        "gui/ui_color_table.c"
         "gui/ui_wifi.c"
+        "gui/ui_wifi_config.c"
+        "gui/ui_mqtt.c"
         "drivers/ft6336.c"
         "drivers/i2c_bus.c"
         "drivers/key.c"
@@ -15,6 +16,7 @@ idf_component_register(
         "drivers/sd_card.c"
         "drivers/shtc3.c"
         "drivers/wifi_manager.c"
+        "drivers/mqtt_manager.c"
         $<$<BOOL:${CONFIG_ENABLE_MPU6050}>:"drivers/mpu6050.c">
     
     INCLUDE_DIRS 
@@ -34,4 +36,5 @@ idf_component_register(
         esp_netif
         esp_event
         nvs_flash
+        mqtt
 )

@@ -1,19 +1,5 @@
 menu "WiFi Configuration"
 
-    config WIFI_SSID
-        string "WiFi SSID"
-        default "your_ssid"
-        help
-            SSID (network name) of the WiFi access point to connect to
-            in STA (station) mode.
-
-    config WIFI_PASSWORD
-        string "WiFi Password"
-        default "your_password"
-        help
-            Password of the WiFi access point. Leave empty for open
-            networks (max 63 characters).
-
     config WIFI_MAX_RETRY
         int "WiFi connection max retries"
         default 10
@@ -22,6 +8,47 @@ menu "WiFi Configuration"
             Maximum number of connection attempts before giving up.
             After this the station stops retrying until a manual
             reconnect is requested.
+            WiFi credentials are NOT compiled in — configure them
+            at runtime from the LCD UI (they are stored in NVS).
+
+endmenu
+
+menu "MQTT Configuration"
+
+    config MQTT_BROKER_URI
+        string "MQTT broker URI"
+        default "wss://broker.example.com:443/mqtt"
+        help
+            Full MQTT URI, e.g.:
+              mqtt://192.168.1.100:1883        (plain TCP, LAN)
+              mqtts://broker.example.com:8883  (TLS over TCP)
+              wss://broker.example.com:443/mqtt (MQTT over WebSocket + TLS)
+            TLS verification uses the ESP-IDF certificate bundle
+            (trusts public CAs). Must match CONFIG_MQTT_USERNAME /
+            CONFIG_MQTT_PASSWORD on the broker.
+
+    config MQTT_USERNAME
+        string "MQTT username"
+        default ""
+        help
+            Username for broker authentication. Leave empty for
+            anonymous access.
+
+    config MQTT_PASSWORD
+        string "MQTT password"
+        default ""
+        help
+            Password for broker authentication. Leave empty for
+            anonymous access.
+
+    config MQTT_TELEMETRY_INTERVAL
+        int "Telemetry publish interval (seconds)"
+        default 5
+        range 1 3600
+        help
+            How often the device publishes temperature/humidity to
+            the broker. The sensor is read every 2 s; publishing is
+            rate-limited to this interval.
 
 endmenu
 
