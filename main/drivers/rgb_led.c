@@ -30,6 +30,11 @@ esp_err_t rgb_led_init(void)
         return ret;
     }
 
+    /* Start dark. WS2812 registers survive a chip reset (only power loss
+     * clears them), so without this the LEDs would keep showing the last
+     * color after an RST/reboot until a new color is sent. */
+    led_strip_clear(s_strip);
+
     ESP_LOGI(TAG, "WS2812 strip initialized (gpio=%d, leds=%d)",
              RGB_LED_GPIO, RGB_LED_NUM);
     return ESP_OK;
