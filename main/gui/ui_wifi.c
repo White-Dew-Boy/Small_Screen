@@ -10,19 +10,34 @@ static lv_obj_t *rssi_label;
 static lv_obj_t *retry_label;
 static lv_obj_t *reason_label;
 
-/* Callback to open the config page (set by main.c, invoked from LVGL thread) */
-static void (*s_config_cb)(void) = NULL;
+/* Callbacks to open the saved/nearby WiFi pages (set by main.c, invoked
+ * from the LVGL thread). */
+static void (*s_saved_cb)(void) = NULL;
+static void (*s_nearby_cb)(void) = NULL;
 
-void ui_wifi_set_config_cb(void (*cb)(void))
+void ui_wifi_set_saved_cb(void (*cb)(void))
 {
-    s_config_cb = cb;
+    s_saved_cb = cb;
 }
 
-static void config_click_cb(lv_event_t *e)
+void ui_wifi_set_nearby_cb(void (*cb)(void))
+{
+    s_nearby_cb = cb;
+}
+
+static void saved_click_cb(lv_event_t *e)
 {
     (void)e;
-    if (s_config_cb != NULL) {
-        s_config_cb();
+    if (s_saved_cb != NULL) {
+        s_saved_cb();
+    }
+}
+
+static void nearby_click_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_nearby_cb != NULL) {
+        s_nearby_cb();
     }
 }
 
@@ -152,16 +167,26 @@ lv_obj_t *ui_wifi_create(void)
     lv_obj_set_style_text_color(reason_label, lv_color_hex(0xFFB74D), 0);
     lv_obj_align(reason_label, LV_ALIGN_CENTER, 0, 78);
 
-    /* Bottom button: open the WiFi config page */
-    lv_obj_t *config_btn = lv_btn_create(scr);
-    lv_obj_set_size(config_btn, 132, 38);
-    lv_obj_align(config_btn, LV_ALIGN_BOTTOM_MID, 0, -12);
-    lv_obj_set_style_bg_color(config_btn, lv_color_hex(0x1565C0), 0);
-    lv_obj_set_style_text_color(config_btn, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_t *config_label = lv_label_create(config_btn);
-    lv_label_set_text(config_label, "Configure");
-    lv_obj_center(config_label);
-    lv_obj_add_event_cb(config_btn, config_click_cb, LV_EVENT_CLICKED, NULL);
+    /* Bottom buttons: Saved WiFi | Nearby WiFi */
+    lv_obj_t *saved_btn = lv_btn_create(scr);
+    lv_obj_set_size(saved_btn, 102, 38);
+    lv_obj_align(saved_btn, LV_ALIGN_BOTTOM_LEFT, 12, -12);
+    lv_obj_set_style_bg_color(saved_btn, lv_color_hex(0x1565C0), 0);
+    lv_obj_set_style_text_color(saved_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *saved_label = lv_label_create(saved_btn);
+    lv_label_set_text(saved_label, "Saved WiFi");
+    lv_obj_center(saved_label);
+    lv_obj_add_event_cb(saved_btn, saved_click_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *nearby_btn = lv_btn_create(scr);
+    lv_obj_set_size(nearby_btn, 102, 38);
+    lv_obj_align(nearby_btn, LV_ALIGN_BOTTOM_RIGHT, -12, -12);
+    lv_obj_set_style_bg_color(nearby_btn, lv_color_hex(0x2E7D32), 0);
+    lv_obj_set_style_text_color(nearby_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *nearby_label = lv_label_create(nearby_btn);
+    lv_label_set_text(nearby_label, "Nearby WiFi");
+    lv_obj_center(nearby_label);
+    lv_obj_add_event_cb(nearby_btn, nearby_click_cb, LV_EVENT_CLICKED, NULL);
 
     /* Refresh every 500 ms from the LVGL thread */
     lv_timer_create(wifi_display_timer_cb, 500, NULL);

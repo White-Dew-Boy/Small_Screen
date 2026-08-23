@@ -19,7 +19,8 @@
 #endif
 #include "ui_shtc3.h"
 #include "ui_wifi.h"
-#include "ui_wifi_config.h"
+#include "ui_saved_wifi.h"
+#include "ui_nearby_wifi.h"
 #include "ui_mqtt.h"
 
 static const char *TAG = "app_main";
@@ -27,7 +28,8 @@ static const char *TAG = "app_main";
 /* UI screens, created once and switched with KEY2 / KEY3 */
 static lv_obj_t *scr_shtc3;
 static lv_obj_t *scr_wifi;
-static lv_obj_t *scr_wifi_config;
+static lv_obj_t *scr_saved_wifi;
+static lv_obj_t *scr_nearby_wifi;
 static lv_obj_t *scr_mqtt;
 
 /* Page-switch request produced by the key task and consumed by the LVGL task
@@ -36,23 +38,33 @@ typedef enum {
     SWITCH_NONE = 0,
     SWITCH_SHTC3,
     SWITCH_WIFI,
-    SWITCH_WIFI_CONFIG,
+    SWITCH_SAVED_WIFI,
+    SWITCH_NEARBY_WIFI,
     SWITCH_MQTT,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
 /* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT).
- * Shared with the WiFi config page callbacks so the cycle stays in sync. */
+ * Shared with the saved/nearby WiFi page callbacks so the cycle stays
+ * in sync (they return to the WIFI status page). */
 static int s_cur_page = 0;
 
-/* Called from the WiFi status page "Configure" button (LVGL thread) */
-static void wifi_config_open(void)
+/* Called from the WiFi status page "Saved WiFi" button (LVGL thread) */
+static void saved_wifi_open(void)
 {
-    s_switch_req = SWITCH_WIFI_CONFIG;
+    ui_saved_wifi_refresh();
+    s_switch_req = SWITCH_SAVED_WIFI;
 }
 
-/* Called from the WiFi config page back/connect (LVGL thread) */
-static void wifi_config_close(void)
+/* Called from the WiFi status page "Nearby WiFi" button (LVGL thread) */
+static void nearby_wifi_open(void)
+{
+    ui_nearby_wifi_start_scan();
+    s_switch_req = SWITCH_NEARBY_WIFI;
+}
+
+/* Called from the saved/nearby WiFi pages back/confirm (LVGL thread) */
+static void wifi_sub_close(void)
 {
     s_cur_page = 1; /* back to WIFI status page */
     s_switch_req = SWITCH_WIFI;
@@ -84,8 +96,10 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_shtc3);
             } else if (req == SWITCH_WIFI) {
                 lv_scr_load(scr_wifi);
-            } else if (req == SWITCH_WIFI_CONFIG) {
-                lv_scr_load(scr_wifi_config);
+            } else if (req == SWITCH_SAVED_WIFI) {
+                lv_scr_load(scr_saved_wifi);
+            } else if (req == SWITCH_NEARBY_WIFI) {
+                lv_scr_load(scr_nearby_wifi);
             } else if (req == SWITCH_MQTT) {
                 lv_scr_load(scr_mqtt);
             }
@@ -217,14 +231,17 @@ void app_main(void)
     // Build all pages, start on the sensor dashboard
     scr_shtc3 = ui_shtc3_create();
     scr_wifi = ui_wifi_create();
-    scr_wifi_config = ui_wifi_config_create();
+    scr_saved_wifi = ui_saved_wifi_create();
+    scr_nearby_wifi = ui_nearby_wifi_create();
     scr_mqtt = ui_mqtt_create();
     lv_scr_load(scr_shtc3);
 
-    // WiFi status page "Configure" button -> config page
-    ui_wifi_set_config_cb(wifi_config_open);
-    // WiFi config page back / connect -> status page
-    ui_wifi_config_set_back_cb(wifi_config_close);
+    // WiFi status page buttons -> saved / nearby pages
+    ui_wifi_set_saved_cb(saved_wifi_open);
+    ui_wifi_set_nearby_cb(nearby_wifi_open);
+    // saved / nearby pages back / confirm -> WiFi status page
+    ui_saved_wifi_set_back_cb(wifi_sub_close);
+    ui_nearby_wifi_set_back_cb(wifi_sub_close);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,

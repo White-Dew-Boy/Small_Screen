@@ -18,9 +18,14 @@ static const char *TAG = "wifi_manager";
 /* Max retries from Kconfig (Component config -> WiFi Configuration) */
 #define WIFI_MAX_RETRY CONFIG_WIFI_MAX_RETRY
 
-#define NVS_NAMESPACE "wifi"
-#define NVS_KEY_SSID  "ssid"
-#define NVS_KEY_PASS  "pass"
+#define NVS_NAMESPACE  "wifi"
+#define NVS_KEY_CREDS  "creds"
+
+/* Persisted credential list: count + up to WIFI_MAX_SAVED_CREDS entries. */
+typedef struct {
+    int32_t count;
+    wifi_cred_t list[WIFI_MAX_SAVED_CREDS];
+} creds_blob_t;
 
 /* Shared status, guarded by s_lock.
  * The WiFi event handler runs in the esp_event task, while callers may
@@ -37,10 +42,18 @@ static wifi_info_t s_info = {
 static int s_retry_cnt = 0;
 static bool s_auto_reconnect = true;
 
-/* Credentials loaded from NVS at init, replaced by set_credentials() */
+/* Set while we initiate a disconnect ourselves (network switch, scan,
+ * manual disconnect). The DISCONNECTED handler then treats the reason as
+ * expected and keeps last_reason clear instead of surfacing a failure. */
+static bool s_manual_switch = false;
+
+/* Active credentials (the network we are currently connecting to). */
 static char s_ssid[33] = {0};
 static char s_pass[65] = {0};
 static bool s_has_creds = false;
+
+/* Saved network list (persisted to NVS), guarded by s_lock. */
+static creds_blob_t s_creds = {0};
 
 /* Scan state: results cache (guarded by s_lock) + in-progress flag.
  * While a scan runs, auto-reconnect is suspended so the disconnect done
@@ -56,7 +69,8 @@ static void set_state(wifi_state_t st)
     xSemaphoreGive(s_lock);
 }
 
-/* Load credentials from NVS. Returns ESP_OK and sets s_has_creds on success. */
+/* Load the saved credential list from NVS. On success the first entry
+ * (if any) becomes the active credentials for auto-connect. */
 static esp_err_t creds_load(void)
 {
     nvs_handle_t h;
@@ -65,24 +79,30 @@ static esp_err_t creds_load(void)
         return ret;
     }
 
-    size_t len = sizeof(s_ssid);
-    ret = nvs_get_str(h, NVS_KEY_SSID, s_ssid, &len);
+    size_t len = sizeof(s_creds);
+    ret = nvs_get_blob(h, NVS_KEY_CREDS, &s_creds, &len);
+    nvs_close(h);
     if (ret != ESP_OK) {
-        nvs_close(h);
         return ret;
     }
-    len = sizeof(s_pass);
-    ret = nvs_get_str(h, NVS_KEY_PASS, s_pass, &len);
-    nvs_close(h);
 
-    if (ret == ESP_OK) {
+    if (s_creds.count < 0) {
+        s_creds.count = 0;
+    }
+    if (s_creds.count > WIFI_MAX_SAVED_CREDS) {
+        s_creds.count = WIFI_MAX_SAVED_CREDS;
+    }
+
+    if (s_creds.count > 0) {
+        strlcpy(s_ssid, s_creds.list[0].ssid, sizeof(s_ssid));
+        strlcpy(s_pass, s_creds.list[0].pass, sizeof(s_pass));
         s_has_creds = true;
     }
-    return ret;
+    return ESP_OK;
 }
 
-/* Persist credentials to NVS (and mirror them in RAM). */
-static esp_err_t creds_save(const char *ssid, const char *pass)
+/* Persist the credential list to NVS. */
+static esp_err_t creds_store(void)
 {
     nvs_handle_t h;
     esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
@@ -90,21 +110,49 @@ static esp_err_t creds_save(const char *ssid, const char *pass)
         return ret;
     }
 
-    ret = nvs_set_str(h, NVS_KEY_SSID, ssid);
-    if (ret == ESP_OK) {
-        ret = nvs_set_str(h, NVS_KEY_PASS, pass);
-    }
+    ret = nvs_set_blob(h, NVS_KEY_CREDS, &s_creds, sizeof(s_creds));
     if (ret == ESP_OK) {
         ret = nvs_commit(h);
     }
     nvs_close(h);
-
-    if (ret == ESP_OK) {
-        strlcpy(s_ssid, ssid, sizeof(s_ssid));
-        strlcpy(s_pass, pass, sizeof(s_pass));
-        s_has_creds = true;
-    }
     return ret;
+}
+
+/* Add or update a credential in the saved list (max WIFI_MAX_SAVED_CREDS,
+ * oldest entry is overwritten when full). Persists to NVS. */
+static esp_err_t creds_update(const char *ssid, const char *pass)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+
+    /* Update in place if already saved */
+    for (int i = 0; i < s_creds.count; i++) {
+        if (strcmp(s_creds.list[i].ssid, ssid) == 0) {
+            strlcpy(s_creds.list[i].pass, pass, sizeof(s_creds.list[i].pass));
+            goto store;
+        }
+    }
+
+    /* New network: append, or overwrite the oldest when full */
+    if (s_creds.count < WIFI_MAX_SAVED_CREDS) {
+        strlcpy(s_creds.list[s_creds.count].ssid, ssid,
+                sizeof(s_creds.list[s_creds.count].ssid));
+        strlcpy(s_creds.list[s_creds.count].pass, pass,
+                sizeof(s_creds.list[s_creds.count].pass));
+        s_creds.count++;
+    } else {
+        /* Shift left, drop the oldest */
+        for (int i = 1; i < WIFI_MAX_SAVED_CREDS; i++) {
+            s_creds.list[i - 1] = s_creds.list[i];
+        }
+        strlcpy(s_creds.list[WIFI_MAX_SAVED_CREDS - 1].ssid, ssid,
+                sizeof(s_creds.list[WIFI_MAX_SAVED_CREDS - 1].ssid));
+        strlcpy(s_creds.list[WIFI_MAX_SAVED_CREDS - 1].pass, pass,
+                sizeof(s_creds.list[WIFI_MAX_SAVED_CREDS - 1].pass));
+    }
+
+store:
+    xSemaphoreGive(s_lock);
+    return creds_store();
 }
 
 /* Apply the in-RAM credentials to the WiFi driver config. */
@@ -144,9 +192,16 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGW(TAG, "Disconnected from AP, reason: %d", disc->reason);
 
         /* Remember the reason so the UI can show why (201: AP not found,
-         * 202: wrong password, 204: handshake timeout, ...) */
+         * 202: wrong password, 204: handshake timeout, ...). An initiated
+         * disconnect (network switch / scan / manual) is not a failure:
+         * keep last_reason clear so the UI does not report it as one. */
         xSemaphoreTake(s_lock, portMAX_DELAY);
-        s_info.last_reason = disc->reason;
+        if (s_manual_switch) {
+            s_info.last_reason = 0;
+        } else {
+            s_info.last_reason = disc->reason;
+        }
+        s_manual_switch = false;
         xSemaphoreGive(s_lock);
 
         /* While a scan is running, do not auto-reconnect: the scan itself
@@ -298,8 +353,13 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
     }
 
     ESP_LOGI(TAG, "Saving credentials for \"%s\"", ssid);
-    ESP_RETURN_ON_ERROR(creds_save(ssid, password), TAG, "NVS save failed");
+    ESP_RETURN_ON_ERROR(creds_update(ssid, password), TAG, "NVS save failed");
     ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "apply credentials failed");
+
+    /* Mirror the new credentials as active */
+    strlcpy(s_ssid, ssid, sizeof(s_ssid));
+    strlcpy(s_pass, password, sizeof(s_pass));
+    s_has_creds = true;
 
     s_auto_reconnect = true;
     s_retry_cnt = 0;
@@ -320,12 +380,100 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
     if (info.state == WIFI_STATE_CONNECTED) {
         ESP_LOGI(TAG, "Switching from \"%s\" to \"%s\"", info.ssid, ssid);
         set_state(WIFI_STATE_CONNECTING);
+        s_manual_switch = true;
         esp_wifi_disconnect();
         return ESP_OK;
     }
 
     /* Not connected: start a fresh connection attempt. */
     set_state(WIFI_STATE_CONNECTING);
+    s_manual_switch = false;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_info.last_reason = 0; /* clear any previous failure */
+    xSemaphoreGive(s_lock);
+    esp_err_t ret = esp_wifi_connect();
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_STARTED) {
+        ESP_LOGW(TAG, "esp_wifi_connect: %s (will connect on STA start)",
+                 esp_err_to_name(ret));
+    }
+    return ESP_OK;
+}
+
+int wifi_manager_cred_count(void)
+{
+    int count = 0;
+    if (s_lock != NULL) {
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+    }
+    count = s_creds.count;
+    if (s_lock != NULL) {
+        xSemaphoreGive(s_lock);
+    }
+    return count;
+}
+
+const wifi_cred_t *wifi_manager_cred_get(int idx)
+{
+    const wifi_cred_t *cred = NULL;
+    if (s_lock != NULL) {
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+    }
+    if (idx >= 0 && idx < s_creds.count) {
+        cred = &s_creds.list[idx];
+    }
+    if (s_lock != NULL) {
+        xSemaphoreGive(s_lock);
+    }
+    return cred;
+}
+
+esp_err_t wifi_manager_connect_saved(int idx)
+{
+    const wifi_cred_t *cred = wifi_manager_cred_get(idx);
+    if (cred == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(TAG, "Connecting to saved network \"%s\"", cred->ssid);
+    strlcpy(s_ssid, cred->ssid, sizeof(s_ssid));
+    strlcpy(s_pass, cred->pass, sizeof(s_pass));
+    s_has_creds = true;
+
+    ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "apply credentials failed");
+
+    s_auto_reconnect = true;
+    s_retry_cnt = 0;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_info.last_reason = 0; /* clear any previous failure */
+    xSemaphoreGive(s_lock);
+
+    wifi_info_t info;
+    wifi_manager_get_info(&info);
+
+    /* Already connected to this exact network: keep the link. Calling
+     * esp_wifi_connect() on a connected STA fails and the CONNECTING
+     * state would never be resolved. */
+    if (info.state == WIFI_STATE_CONNECTED &&
+        strcmp(info.ssid, cred->ssid) == 0) {
+        ESP_LOGI(TAG, "Already connected to \"%s\", keeping connection",
+                 cred->ssid);
+        return ESP_OK;
+    }
+
+    /* Connected to a different network: drop the link; the DISCONNECTED
+     * handler reconnects immediately with the new credentials. */
+    if (info.state == WIFI_STATE_CONNECTED) {
+        ESP_LOGI(TAG, "Switching from \"%s\" to \"%s\"", info.ssid,
+                 cred->ssid);
+        set_state(WIFI_STATE_CONNECTING);
+        s_manual_switch = true;
+        esp_wifi_disconnect();
+        return ESP_OK;
+    }
+
+    /* Not connected: start a fresh connection attempt. */
+    set_state(WIFI_STATE_CONNECTING);
+    s_manual_switch = false;
     esp_err_t ret = esp_wifi_connect();
     if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_STARTED) {
         ESP_LOGW(TAG, "esp_wifi_connect: %s (will connect on STA start)",
@@ -372,6 +520,7 @@ esp_err_t wifi_manager_disconnect(void)
 {
     s_auto_reconnect = false;
     set_state(WIFI_STATE_DISCONNECTED);
+    s_manual_switch = true; /* initiated by us, not a failure */
     return esp_wifi_disconnect();
 }
 
@@ -421,6 +570,7 @@ esp_err_t wifi_manager_scan_start(void)
     wifi_info_t info;
     wifi_manager_get_info(&info);
     if (info.state == WIFI_STATE_CONNECTED || info.state == WIFI_STATE_CONNECTING) {
+        s_manual_switch = true; /* scan-initiated disconnect is expected */
         esp_wifi_disconnect();
     }
 

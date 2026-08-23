@@ -16,6 +16,15 @@ extern "C" {
 /* Maximum number of APs kept from a scan (memory bound for the results cache) */
 #define WIFI_SCAN_MAX_RESULTS 20
 
+/* Maximum number of WiFi networks saved in NVS */
+#define WIFI_MAX_SAVED_CREDS 5
+
+/* One saved network credential */
+typedef struct {
+    char ssid[33]; /* Network name */
+    char pass[65]; /* Password (empty = open network) */
+} wifi_cred_t;
+
 /* One scan result entry (snapshot copied by wifi_manager_scan_get_results()) */
 typedef struct {
     char ssid[33];              /* Network name */
@@ -77,6 +86,32 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password);
  */
 esp_err_t wifi_manager_get_credentials(char *ssid, size_t ssid_cap,
                                        char *password, size_t pass_cap);
+
+/**
+ * @brief Get the number of saved WiFi networks (0..WIFI_MAX_SAVED_CREDS).
+ * @return Number of saved credentials.
+ */
+int wifi_manager_cred_count(void);
+
+/**
+ * @brief Get one saved credential by index.
+ * @param[in] idx  Index into the saved list (0..cred_count()-1).
+ * @return Pointer to the credential, or NULL if idx is out of range.
+ */
+const wifi_cred_t *wifi_manager_cred_get(int idx);
+
+/**
+ * @brief Connect using the idx-th saved credential.
+ *
+ * Loads the saved SSID/password as the active credentials and starts a
+ * fresh connection attempt. On failure the device keeps retrying
+ * (see CONFIG_WIFI_MAX_RETRY); the UI can show wifi_info.last_reason.
+ *
+ * @param[in] idx  Index into the saved list.
+ * @return ESP_OK if the attempt was started, ESP_ERR_INVALID_ARG if idx
+ *         is out of range.
+ */
+esp_err_t wifi_manager_connect_saved(int idx);
 
 /**
  * @brief Check whether WiFi credentials are saved in NVS.
