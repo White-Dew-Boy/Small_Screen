@@ -14,6 +14,7 @@
 #include "drivers/key.h"
 #include "drivers/wifi_manager.h"
 #include "drivers/mqtt_manager.h"
+#include "drivers/rgb_led.h"
 #if CONFIG_ENABLE_MPU6050
 #include "drivers/mpu6050.h"
 #endif
@@ -25,10 +26,13 @@
 #include "ui_mqtt_interval.h"
 #include "ui_mqtt_history.h"
 #include "ui_mqtt_config.h"
+#include "ui_led.h"
+#include "ui_led_preset.h"
+#include "ui_led_custom.h"
 
 static const char *TAG = "app_main";
 
-/* UI screens, created once and switched with KEY2 / KEY3 */
+/* UI screens, created once and switched with KEY2 */
 static lv_obj_t *scr_shtc3;
 static lv_obj_t *scr_wifi;
 static lv_obj_t *scr_saved_wifi;
@@ -37,6 +41,9 @@ static lv_obj_t *scr_mqtt;
 static lv_obj_t *scr_mqtt_interval;
 static lv_obj_t *scr_mqtt_history;
 static lv_obj_t *scr_mqtt_config;
+static lv_obj_t *scr_led;
+static lv_obj_t *scr_led_preset;
+static lv_obj_t *scr_led_custom;
 
 /* Page-switch request produced by the key task and consumed by the LVGL task
  * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
@@ -50,12 +57,15 @@ typedef enum {
     SWITCH_MQTT_INTERVAL,
     SWITCH_MQTT_HISTORY,
     SWITCH_MQTT_CONFIG,
+    SWITCH_LED,
+    SWITCH_LED_PRESET,
+    SWITCH_LED_CUSTOM,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
-/* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT).
- * Shared with the saved/nearby WiFi page callbacks so the cycle stays
- * in sync (they return to the WIFI status page). */
+/* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT,
+ * 3 = LED). Shared with the saved/nearby WiFi page callbacks so the cycle
+ * stays in sync (they return to the WIFI status page). */
 static int s_cur_page = 0;
 
 /* Called from the WiFi status page "Saved WiFi" button (LVGL thread) */
@@ -102,6 +112,28 @@ static void mqtt_sub_close(void)
     s_switch_req = SWITCH_MQTT;
 }
 
+/* Called from the LED page "Preset Colors" / "Custom RGB" buttons */
+static void led_preset_open(void)
+{
+    s_switch_req = SWITCH_LED_PRESET;
+}
+
+static void led_custom_open(void)
+{
+    /* Sync the R/G/B sliders with the LED page's selected target before
+     * switching (the page is created once, so this must be refreshed on
+     * every entry). */
+    ui_led_custom_refresh();
+    s_switch_req = SWITCH_LED_CUSTOM;
+}
+
+/* Called from the LED sub-pages back / color picked (LVGL thread) */
+static void led_sub_close(void)
+{
+    s_cur_page = 3; /* back to LED control page */
+    s_switch_req = SWITCH_LED;
+}
+
 static void lvgl_task(void *arg)
 {
     (void)arg;
@@ -140,6 +172,12 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_mqtt_history);
             } else if (req == SWITCH_MQTT_CONFIG) {
                 lv_scr_load(scr_mqtt_config);
+            } else if (req == SWITCH_LED) {
+                lv_scr_load(scr_led);
+            } else if (req == SWITCH_LED_PRESET) {
+                lv_scr_load(scr_led_preset);
+            } else if (req == SWITCH_LED_CUSTOM) {
+                lv_scr_load(scr_led_custom);
             }
         }
 
@@ -149,7 +187,7 @@ static void lvgl_task(void *arg)
 }
 
 /* Scan the two buttons; page switches are applied by the LVGL task.
- * KEY2 cycles through pages: sensor -> wifi -> mqtt -> sensor ...
+ * KEY2 cycles through pages: sensor -> wifi -> mqtt -> led -> sensor ...
  * KEY3 jumps back to the sensor dashboard. */
 static void key_task(void *arg)
 {
@@ -158,13 +196,15 @@ static void key_task(void *arg)
     while (1) {
         key_scan();
         if (key_pressed_edge(KEY_ID_2)) {
-            s_cur_page = (s_cur_page + 1) % 3;
+            s_cur_page = (s_cur_page + 1) % 4;
             if (s_cur_page == 0) {
                 s_switch_req = SWITCH_SHTC3;
             } else if (s_cur_page == 1) {
                 s_switch_req = SWITCH_WIFI;
-            } else {
+            } else if (s_cur_page == 2) {
                 s_switch_req = SWITCH_MQTT;
+            } else {
+                s_switch_req = SWITCH_LED;
             }
         } else if (key_pressed_edge(KEY_ID_3)) {
             s_cur_page = 0;
@@ -260,6 +300,15 @@ void app_main(void)
     // Buttons (KEY2: cycle pages, KEY3: sensor page)
     ESP_ERROR_CHECK(key_init());
 
+    // RGB LED strip (3x WS2812). Non-fatal: the UI still works without it.
+    esp_err_t led_ret = rgb_led_init();
+    if (led_ret != ESP_OK) {
+        ESP_LOGW(TAG, "RGB LED init failed (%s), LED page disabled",
+                 esp_err_to_name(led_ret));
+    } else {
+        ESP_LOGI(TAG, "RGB LED initialized");
+    }
+
     // LVGL
     lv_init();
     ESP_ERROR_CHECK(lv_port_tick_init());
@@ -275,6 +324,9 @@ void app_main(void)
     scr_mqtt_interval = ui_mqtt_interval_create();
     scr_mqtt_history = ui_mqtt_history_create();
     scr_mqtt_config = ui_mqtt_config_create();
+    scr_led = ui_led_create();
+    scr_led_preset = ui_led_preset_create();
+    scr_led_custom = ui_led_custom_create();
     lv_scr_load(scr_shtc3);
 
     // WiFi status page buttons -> saved / nearby pages
@@ -292,6 +344,13 @@ void app_main(void)
     ui_mqtt_interval_set_back_cb(mqtt_sub_close);
     ui_mqtt_history_set_back_cb(mqtt_sub_close);
     ui_mqtt_config_set_back_cb(mqtt_sub_close);
+
+    // LED page buttons -> preset / custom color pages
+    ui_led_set_preset_cb(led_preset_open);
+    ui_led_set_custom_cb(led_custom_open);
+    // LED sub-pages back / color picked -> LED control page
+    ui_led_preset_set_back_cb(led_sub_close);
+    ui_led_custom_set_back_cb(led_sub_close);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,
