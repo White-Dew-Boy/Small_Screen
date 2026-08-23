@@ -1,5 +1,6 @@
 #include "wifi_manager.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_check.h"
@@ -9,14 +10,17 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 
 static const char *TAG = "wifi_manager";
 
-/* Kconfig credentials (see main/Kconfig.projbuild) */
-#define WIFI_SSID     CONFIG_WIFI_SSID
-#define WIFI_PASSWORD CONFIG_WIFI_PASSWORD
+/* Max retries from Kconfig (Component config -> WiFi Configuration) */
 #define WIFI_MAX_RETRY CONFIG_WIFI_MAX_RETRY
+
+#define NVS_NAMESPACE "wifi"
+#define NVS_KEY_SSID  "ssid"
+#define NVS_KEY_PASS  "pass"
 
 /* Shared status, guarded by s_lock.
  * The WiFi event handler runs in the esp_event task, while callers may
@@ -28,9 +32,22 @@ static wifi_info_t s_info = {
     .ip = {0},
     .rssi = 0,
     .reconnect_cnt = 0,
+    .last_reason = 0,
 };
 static int s_retry_cnt = 0;
 static bool s_auto_reconnect = true;
+
+/* Credentials loaded from NVS at init, replaced by set_credentials() */
+static char s_ssid[33] = {0};
+static char s_pass[65] = {0};
+static bool s_has_creds = false;
+
+/* Scan state: results cache (guarded by s_lock) + in-progress flag.
+ * While a scan runs, auto-reconnect is suspended so the disconnect done
+ * for the full-channel scan does not fight with the scan itself. */
+static wifi_scan_result_t s_scan_results[WIFI_SCAN_MAX_RESULTS];
+static size_t s_scan_count = 0;
+static bool s_scan_in_progress = false;
 
 static void set_state(wifi_state_t st)
 {
@@ -39,20 +56,104 @@ static void set_state(wifi_state_t st)
     xSemaphoreGive(s_lock);
 }
 
+/* Load credentials from NVS. Returns ESP_OK and sets s_has_creds on success. */
+static esp_err_t creds_load(void)
+{
+    nvs_handle_t h;
+    esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    size_t len = sizeof(s_ssid);
+    ret = nvs_get_str(h, NVS_KEY_SSID, s_ssid, &len);
+    if (ret != ESP_OK) {
+        nvs_close(h);
+        return ret;
+    }
+    len = sizeof(s_pass);
+    ret = nvs_get_str(h, NVS_KEY_PASS, s_pass, &len);
+    nvs_close(h);
+
+    if (ret == ESP_OK) {
+        s_has_creds = true;
+    }
+    return ret;
+}
+
+/* Persist credentials to NVS (and mirror them in RAM). */
+static esp_err_t creds_save(const char *ssid, const char *pass)
+{
+    nvs_handle_t h;
+    esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    ret = nvs_set_str(h, NVS_KEY_SSID, ssid);
+    if (ret == ESP_OK) {
+        ret = nvs_set_str(h, NVS_KEY_PASS, pass);
+    }
+    if (ret == ESP_OK) {
+        ret = nvs_commit(h);
+    }
+    nvs_close(h);
+
+    if (ret == ESP_OK) {
+        strlcpy(s_ssid, ssid, sizeof(s_ssid));
+        strlcpy(s_pass, pass, sizeof(s_pass));
+        s_has_creds = true;
+    }
+    return ret;
+}
+
+/* Apply the in-RAM credentials to the WiFi driver config. */
+static esp_err_t creds_apply_to_wifi(void)
+{
+    wifi_config_t wifi_cfg = {
+        .sta = {
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+        },
+    };
+    strlcpy((char *)wifi_cfg.sta.ssid, s_ssid, sizeof(wifi_cfg.sta.ssid));
+    strlcpy((char *)wifi_cfg.sta.password, s_pass, sizeof(wifi_cfg.sta.password));
+    if (strlen(s_pass) == 0) {
+        /* Open network */
+        wifi_cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    }
+    return esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
+}
+
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
 {
     (void)arg;
 
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        ESP_LOGI(TAG, "WiFi STA started, connecting to \"%s\"", WIFI_SSID);
-        set_state(WIFI_STATE_CONNECTING);
-        esp_wifi_connect();
+        ESP_LOGI(TAG, "WiFi STA started");
+        if (s_has_creds) {
+            ESP_LOGI(TAG, "Connecting to \"%s\"", s_ssid);
+            set_state(WIFI_STATE_CONNECTING);
+            esp_wifi_connect();
+        } else {
+            ESP_LOGW(TAG, "No credentials saved — configure WiFi from the UI");
+            set_state(WIFI_STATE_DISCONNECTED);
+        }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
         ESP_LOGW(TAG, "Disconnected from AP, reason: %d", disc->reason);
 
-        if (!s_auto_reconnect) {
+        /* Remember the reason so the UI can show why (201: AP not found,
+         * 202: wrong password, 204: handshake timeout, ...) */
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        s_info.last_reason = disc->reason;
+        xSemaphoreGive(s_lock);
+
+        /* While a scan is running, do not auto-reconnect: the scan itself
+         * disconnected the STA, and reconnecting mid-scan would abort the
+         * scan or restrict it to the current channel. wifi_manager_scan_start()
+         * / the SCAN_DONE handler resumes the connection afterwards. */
+        if (!s_auto_reconnect || s_scan_in_progress) {
             set_state(WIFI_STATE_DISCONNECTED);
             return;
         }
@@ -69,11 +170,52 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             set_state(WIFI_STATE_DISCONNECTED);
             ESP_LOGW(TAG, "Giving up after %d retries", s_retry_cnt);
         }
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_SCAN_DONE) {
+        /* Copy the results out of the wifi lib before they are freed. */
+        uint16_t ap_num = 0;
+        esp_wifi_scan_get_ap_num(&ap_num);
+        ESP_LOGI(TAG, "Scan finished, %u AP(s) found", (unsigned)ap_num);
+
+        uint16_t to_copy = ap_num < WIFI_SCAN_MAX_RESULTS ? ap_num : WIFI_SCAN_MAX_RESULTS;
+        wifi_ap_record_t *aps = malloc(to_copy * sizeof(wifi_ap_record_t));
+        if (aps != NULL) {
+            uint16_t copied = to_copy;
+            if (esp_wifi_scan_get_ap_records(&copied, aps) == ESP_OK) {
+                xSemaphoreTake(s_lock, portMAX_DELAY);
+                s_scan_count = copied;
+                for (uint16_t i = 0; i < copied; i++) {
+                    strlcpy(s_scan_results[i].ssid, (char *)aps[i].ssid,
+                            sizeof(s_scan_results[i].ssid));
+                    s_scan_results[i].rssi = aps[i].rssi;
+                    s_scan_results[i].authmode = aps[i].authmode;
+                }
+                xSemaphoreGive(s_lock);
+            }
+            free(aps);
+        } else {
+            xSemaphoreTake(s_lock, portMAX_DELAY);
+            s_scan_count = 0;
+            xSemaphoreGive(s_lock);
+        }
+
+        s_scan_in_progress = false;
+
+        /* Resume the connection that the scan dropped, if any */
+        if (s_auto_reconnect && s_has_creds) {
+            wifi_info_t info;
+            wifi_manager_get_info(&info);
+            if (info.state != WIFI_STATE_CONNECTED &&
+                info.state != WIFI_STATE_CONNECTING) {
+                set_state(WIFI_STATE_CONNECTING);
+                esp_wifi_connect();
+            }
+        }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         s_retry_cnt = 0;
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_info.state = WIFI_STATE_CONNECTED;
+        s_info.last_reason = 0; /* clear any previous failure */
         snprintf(s_info.ip, sizeof(s_info.ip), IPSTR, IP2STR(&event->ip_info.ip));
         /* SSID is refreshed lazily in wifi_manager_get_info() via
          * esp_wifi_sta_get_ap_info(). */
@@ -117,23 +259,21 @@ esp_err_t wifi_manager_init(void)
                                             &event_handler, NULL, NULL),
         TAG, "ip event register failed");
 
-    wifi_config_t wifi_cfg = {
-        .sta = {
-            .ssid = WIFI_SSID,
-            .password = WIFI_PASSWORD,
-            /* Adjust for faster (re)connect */
-            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-        },
-    };
-    if (strlen(WIFI_PASSWORD) == 0) {
-        /* Open network */
-        wifi_cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    /* Load saved credentials from NVS (if any) */
+    esp_err_t cred_ret = creds_load();
+    if (cred_ret == ESP_OK) {
+        ESP_LOGI(TAG, "Loaded credentials for \"%s\"", s_ssid);
+    } else {
+        ESP_LOGW(TAG, "No saved credentials (%s) — configure WiFi from the UI",
+                 esp_err_to_name(cred_ret));
     }
 
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "set mode failed");
-    /* Credentials come from Kconfig; keep them in RAM only, don't touch NVS */
+    /* Credentials live in our own NVS storage; keep the wifi lib config in RAM */
     ESP_RETURN_ON_ERROR(esp_wifi_set_storage(WIFI_STORAGE_RAM), TAG, "set storage failed");
-    ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg), TAG, "set config failed");
+    if (cred_ret == ESP_OK) {
+        ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "set config failed");
+    }
 
     s_auto_reconnect = true;
     s_retry_cnt = 0;
@@ -141,8 +281,77 @@ esp_err_t wifi_manager_init(void)
 
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "wifi start failed");
 
-    ESP_LOGI(TAG, "WiFi manager initialized (SSID \"%s\")", WIFI_SSID);
+    ESP_LOGI(TAG, "WiFi manager initialized (credentials: %s)",
+             s_has_creds ? "yes" : "none");
     return ESP_OK;
+}
+
+esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
+{
+    if (ssid == NULL || strlen(ssid) == 0 || strlen(ssid) > 32) {
+        ESP_LOGE(TAG, "Invalid SSID");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (password == NULL || strlen(password) > 63) {
+        ESP_LOGE(TAG, "Invalid password");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(TAG, "Saving credentials for \"%s\"", ssid);
+    ESP_RETURN_ON_ERROR(creds_save(ssid, password), TAG, "NVS save failed");
+    ESP_RETURN_ON_ERROR(creds_apply_to_wifi(), TAG, "apply credentials failed");
+
+    s_auto_reconnect = true;
+    s_retry_cnt = 0;
+
+    wifi_info_t info;
+    wifi_manager_get_info(&info);
+
+    /* Already connected to this exact network: keep the link. Calling
+     * esp_wifi_connect() on a connected STA fails (ESP_ERR_WIFI_CONN) and
+     * the CONNECTING state would never be resolved by an event. */
+    if (info.state == WIFI_STATE_CONNECTED && strcmp(info.ssid, ssid) == 0) {
+        ESP_LOGI(TAG, "Already connected to \"%s\", keeping connection", ssid);
+        return ESP_OK;
+    }
+
+    /* Connected to a different network: drop the link; the DISCONNECTED
+     * handler reconnects immediately with the new credentials. */
+    if (info.state == WIFI_STATE_CONNECTED) {
+        ESP_LOGI(TAG, "Switching from \"%s\" to \"%s\"", info.ssid, ssid);
+        set_state(WIFI_STATE_CONNECTING);
+        esp_wifi_disconnect();
+        return ESP_OK;
+    }
+
+    /* Not connected: start a fresh connection attempt. */
+    set_state(WIFI_STATE_CONNECTING);
+    esp_err_t ret = esp_wifi_connect();
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_STARTED) {
+        ESP_LOGW(TAG, "esp_wifi_connect: %s (will connect on STA start)",
+                 esp_err_to_name(ret));
+    }
+    return ESP_OK;
+}
+
+esp_err_t wifi_manager_get_credentials(char *ssid, size_t ssid_cap,
+                                       char *password, size_t pass_cap)
+{
+    if (!s_has_creds) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (ssid != NULL && ssid_cap > 0) {
+        strlcpy(ssid, s_ssid, ssid_cap);
+    }
+    if (password != NULL && pass_cap > 0) {
+        strlcpy(password, s_pass, pass_cap);
+    }
+    return ESP_OK;
+}
+
+bool wifi_manager_has_credentials(void)
+{
+    return s_has_creds;
 }
 
 esp_err_t wifi_manager_reconnect(void)
@@ -198,4 +407,64 @@ bool wifi_manager_is_connected(void)
     wifi_info_t info;
     wifi_manager_get_info(&info);
     return info.state == WIFI_STATE_CONNECTED;
+}
+
+esp_err_t wifi_manager_scan_start(void)
+{
+    if (s_scan_in_progress) {
+        return ESP_OK; /* already scanning */
+    }
+
+    /* A full-channel scan needs the STA disconnected; otherwise esp_wifi
+     * only scans the current channel. Drop the link now — auto-reconnect is
+     * suspended during the scan and resumed in the SCAN_DONE handler. */
+    wifi_info_t info;
+    wifi_manager_get_info(&info);
+    if (info.state == WIFI_STATE_CONNECTED || info.state == WIFI_STATE_CONNECTING) {
+        esp_wifi_disconnect();
+    }
+
+    s_scan_count = 0;
+    s_scan_in_progress = true;
+
+    wifi_scan_config_t scan_cfg = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,            /* all 2.4 GHz channels */
+        .show_hidden = false,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time.active.min = 100, /* ms per channel */
+        .scan_time.active.max = 300,
+    };
+    esp_err_t ret = esp_wifi_scan_start(&scan_cfg, false); /* async */
+    if (ret != ESP_OK) {
+        s_scan_in_progress = false;
+        ESP_LOGE(TAG, "scan start failed: %s", esp_err_to_name(ret));
+    }
+    return ret;
+}
+
+bool wifi_manager_scan_in_progress(void)
+{
+    return s_scan_in_progress;
+}
+
+size_t wifi_manager_scan_get_results(wifi_scan_result_t *results, size_t capacity)
+{
+    if (results == NULL || capacity == 0) {
+        return 0;
+    }
+
+    size_t n = 0;
+    if (s_lock != NULL) {
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+    }
+    n = s_scan_count < capacity ? s_scan_count : capacity;
+    if (n > 0) {
+        memcpy(results, s_scan_results, n * sizeof(wifi_scan_result_t));
+    }
+    if (s_lock != NULL) {
+        xSemaphoreGive(s_lock);
+    }
+    return n;
 }

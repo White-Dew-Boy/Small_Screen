@@ -1,8 +1,10 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "esp_wifi_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -11,6 +13,16 @@ extern "C" {
 /*============================================================================
  * Data Structures
  *============================================================================*/
+/* Maximum number of APs kept from a scan (memory bound for the results cache) */
+#define WIFI_SCAN_MAX_RESULTS 20
+
+/* One scan result entry (snapshot copied by wifi_manager_scan_get_results()) */
+typedef struct {
+    char ssid[33];              /* Network name */
+    int8_t rssi;                /* Signal strength in dBm */
+    wifi_auth_mode_t authmode;  /* Security mode */
+} wifi_scan_result_t;
+
 typedef enum {
     WIFI_STATE_IDLE = 0,     /* Not initialized */
     WIFI_STATE_DISCONNECTED, /* Init done, not connected */
@@ -24,22 +36,53 @@ typedef struct {
     char ip[16];         /* Assigned IPv4 address ("" if none) */
     int8_t rssi;         /* Signal strength in dBm (0 if unknown) */
     uint32_t reconnect_cnt; /* Number of automatic reconnects performed */
+    int16_t last_reason; /* Last disconnect reason (wifi_err_reason_t, 0 if none) */
 } wifi_info_t;
 
 /*============================================================================
  * API
  *============================================================================*/
 /**
- * @brief Initialize NVS, netif, event loop and WiFi in STA mode,
- *        then start connecting to the AP configured via Kconfig
- *        (CONFIG_WIFI_SSID / CONFIG_WIFI_PASSWORD).
+ * @brief Initialize NVS, netif, event loop and WiFi in STA mode.
  *
- * Non-blocking: connection happens in the background. Call
- * wifi_manager_get_info() to poll the status.
+ * WiFi credentials are loaded from NVS (saved by wifi_manager_set_credentials()).
+ * If credentials exist, connecting starts automatically in the background;
+ * otherwise the WiFi radio stays idle until credentials are provided.
  *
- * @return ESP_OK on success (init done, connect started).
+ * Non-blocking. Call wifi_manager_get_info() to poll the status.
+ *
+ * @return ESP_OK on success (init done, connect started if credentials exist).
  */
 esp_err_t wifi_manager_init(void);
+
+/**
+ * @brief Save WiFi credentials to NVS and (re)connect using them.
+ *
+ * Replaces the old credentials persistently — after a reboot the device
+ * reconnects to this network automatically.
+ *
+ * @param[in] ssid     Network name (1..32 chars, must not be empty).
+ * @param[in] password Password (up to 63 chars; empty string for open network).
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG on bad input.
+ */
+esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password);
+
+/**
+ * @brief Get the credentials currently stored in NVS.
+ * @param[out] ssid        Buffer for the SSID (may be NULL).
+ * @param[in]  ssid_cap    Capacity of the ssid buffer.
+ * @param[out] password    Buffer for the password (may be NULL).
+ * @param[in]  pass_cap    Capacity of the password buffer.
+ * @return ESP_OK on success, ESP_ERR_NOT_FOUND if no credentials are saved.
+ */
+esp_err_t wifi_manager_get_credentials(char *ssid, size_t ssid_cap,
+                                       char *password, size_t pass_cap);
+
+/**
+ * @brief Check whether WiFi credentials are saved in NVS.
+ * @return true if credentials exist.
+ */
+bool wifi_manager_has_credentials(void);
 
 /**
  * @brief Reconnect to the configured AP. No-op if already connected
@@ -67,6 +110,34 @@ void wifi_manager_get_info(wifi_info_t *info);
  * @return true if connected.
  */
 bool wifi_manager_is_connected(void);
+
+/**
+ * @brief Start an asynchronous scan for nearby 2.4 GHz access points.
+ *
+ * While scanning, an existing connection is dropped (a full-channel scan
+ * requires the STA to be disconnected); if credentials are saved, the
+ * manager reconnects automatically once the scan finishes.
+ *
+ * Non-blocking. Poll wifi_manager_scan_in_progress() until it returns
+ * false, then call wifi_manager_scan_get_results().
+ *
+ * @return ESP_OK if the scan was started (or is already running).
+ */
+esp_err_t wifi_manager_scan_start(void);
+
+/**
+ * @brief Check whether a scan is currently in progress.
+ * @return true while a scan is running.
+ */
+bool wifi_manager_scan_in_progress(void);
+
+/**
+ * @brief Copy the results of the last finished scan.
+ * @param[out] results   Buffer receiving up to `capacity` entries.
+ * @param[in]  capacity  Capacity of the buffer (use WIFI_SCAN_MAX_RESULTS).
+ * @return Number of results copied.
+ */
+size_t wifi_manager_scan_get_results(wifi_scan_result_t *results, size_t capacity);
 
 #ifdef __cplusplus
 }

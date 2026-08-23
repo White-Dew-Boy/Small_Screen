@@ -9,6 +9,6 @@ CONFIG_LV_LOG_LEVEL_INFO=y
 CONFIG_LV_LOG_PRINTF=y
 # CONFIG_LV_TICK_CUSTOM is not set
 
-# WiFi credentials — change here or with menuconfig (Component config -> WiFi Configuration)
-CONFIG_WIFI_SSID="your_ssid"
-CONFIG_WIFI_PASSWORD="your_password"
+# WiFi credentials are configured at runtime from the LCD UI (stored in NVS),
+# not compiled in. Only the retry count is a build-time option here:
+# CONFIG_WIFI_MAX_RETRY=10
