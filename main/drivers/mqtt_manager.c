@@ -12,6 +12,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 
 #include "wifi_manager.h"
 
@@ -22,6 +24,13 @@ static const char *TAG = "mqtt_manager";
 
 /* Last-will payload sent by the broker if the device drops unexpectedly. */
 #define LWT_OFFLINE_MSG "{\"state\":\"offline\"}"
+
+#define NVS_NS           "mqtt"
+#define NVS_KEY_CFG      "cfg"
+#define NVS_KEY_INTERVAL "interval"
+
+/* Default keepalive when the config keeps 0 */
+#define MQTT_DEFAULT_KEEPALIVE_S 120
 
 static esp_mqtt_client_handle_t s_client = NULL;
 static bool s_mqtt_connected = false;
@@ -34,9 +43,75 @@ static char s_status_topic[64];
 static char s_cmd_topic[64];
 static char s_cmd_resp_topic[64];
 
+/* Runtime configuration (loaded from NVS, falls back to Kconfig) */
+static mqtt_cfg_t s_cfg = {0};
+
+/* Telemetry rate limiting */
 static int64_t s_last_publish_us = 0;
 static int64_t s_interval_us = CONFIG_MQTT_TELEMETRY_INTERVAL * 1000000LL;
 static volatile uint32_t s_publish_count = 0;
+
+/* Recent command history (ring buffer) */
+static mqtt_cmd_entry_t s_cmd_hist[MQTT_CMD_HISTORY_MAX];
+static size_t s_cmd_hist_count = 0;
+static size_t s_cmd_hist_pos = 0; /* next write slot */
+
+/* ============================ NVS config ============================ */
+
+/* Apply Kconfig defaults, then let NVS override them. */
+static void cfg_load(void)
+{
+    snprintf(s_cfg.uri, sizeof(s_cfg.uri), "%s", CONFIG_MQTT_BROKER_URI);
+    strlcpy(s_cfg.username, CONFIG_MQTT_USERNAME, sizeof(s_cfg.username));
+    strlcpy(s_cfg.password, CONFIG_MQTT_PASSWORD, sizeof(s_cfg.password));
+    s_cfg.client_id[0] = '\0';
+    s_cfg.keepalive_s = 0;
+
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
+        return;
+    }
+    size_t len = sizeof(s_cfg);
+    nvs_get_blob(h, NVS_KEY_CFG, &s_cfg, &len);
+
+    int32_t interval = 0;
+    if (nvs_get_i32(h, NVS_KEY_INTERVAL, &interval) == ESP_OK &&
+        interval >= 1 && interval <= 3600) {
+        s_interval_us = interval * 1000000LL;
+    }
+    nvs_close(h);
+}
+
+static esp_err_t cfg_store(void)
+{
+    nvs_handle_t h;
+    esp_err_t ret = nvs_open(NVS_NS, NVS_READWRITE, &h);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = nvs_set_blob(h, NVS_KEY_CFG, &s_cfg, sizeof(s_cfg));
+    if (ret == ESP_OK) {
+        ret = nvs_commit(h);
+    }
+    nvs_close(h);
+    return ret;
+}
+
+/* ============================ helpers ============================ */
+
+static void cmd_history_add(const char *text, int len)
+{
+    char *dst = s_cmd_hist[s_cmd_hist_pos].text;
+    size_t cap = sizeof(s_cmd_hist[s_cmd_hist_pos].text);
+    size_t n = len < (int)cap - 1 ? (size_t)len : cap - 1;
+    memcpy(dst, text, n);
+    dst[n] = '\0';
+
+    s_cmd_hist_pos = (s_cmd_hist_pos + 1) % MQTT_CMD_HISTORY_MAX;
+    if (s_cmd_hist_count < MQTT_CMD_HISTORY_MAX) {
+        s_cmd_hist_count++;
+    }
+}
 
 /* Publish a (retained) status message so subscribers see online/offline. */
 static void publish_status(const char *state)
@@ -55,6 +130,8 @@ static void publish_status(const char *state)
  *            {"cmd":"set_interval","value":<1..3600>} */
 static void handle_cmd(const char *payload, int payload_len)
 {
+    cmd_history_add(payload, payload_len);
+
     char buf[128];
     int len = payload_len < (int)sizeof(buf) - 1 ? payload_len : (int)sizeof(buf) - 1;
     memcpy(buf, payload, len);
@@ -72,14 +149,7 @@ static void handle_cmd(const char *payload, int payload_len)
             vp = strchr(vp, ':');
             if (vp != NULL) {
                 long sec = strtol(vp + 1, NULL, 10);
-                if (sec < 1) {
-                    sec = 1;
-                }
-                if (sec > 3600) {
-                    sec = 3600;
-                }
-                s_interval_us = sec * 1000000LL;
-                ESP_LOGI(TAG, "Telemetry interval -> %ld s", sec);
+                mqtt_manager_set_interval((int)sec);
             }
         }
         esp_mqtt_client_publish(s_client, s_cmd_resp_topic,
@@ -142,18 +212,21 @@ static void mqtt_start(void)
         return;
     }
     ESP_LOGI(TAG, "Starting MQTT client: %s (user: %s)",
-             CONFIG_MQTT_BROKER_URI,
-             CONFIG_MQTT_USERNAME[0] ? CONFIG_MQTT_USERNAME : "anonymous");
+             s_cfg.uri, s_cfg.username[0] ? s_cfg.username : "anonymous");
 
     esp_mqtt_client_config_t cfg = {
-        .broker.address.uri = CONFIG_MQTT_BROKER_URI,
+        .broker.address.uri = s_cfg.uri,
         /* Verify the server against the ESP-IDF certificate bundle
          * (trusts public CAs such as Let's Encrypt). */
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
         .credentials.username =
-            CONFIG_MQTT_USERNAME[0] ? CONFIG_MQTT_USERNAME : NULL,
+            s_cfg.username[0] ? s_cfg.username : NULL,
         .credentials.authentication.password =
-            CONFIG_MQTT_PASSWORD[0] ? CONFIG_MQTT_PASSWORD : NULL,
+            s_cfg.password[0] ? s_cfg.password : NULL,
+        .credentials.client_id =
+            s_cfg.client_id[0] ? s_cfg.client_id : NULL,
+        .session.keepalive =
+            s_cfg.keepalive_s > 0 ? s_cfg.keepalive_s : MQTT_DEFAULT_KEEPALIVE_S,
         .session.last_will.topic = s_status_topic,
         .session.last_will.msg = LWT_OFFLINE_MSG,
         .session.last_will.qos = 1,
@@ -170,6 +243,16 @@ static void mqtt_start(void)
     esp_mqtt_client_start(s_client);
 }
 
+/* Tear the client down so a new config can be applied. */
+static void mqtt_teardown(void)
+{
+    if (s_client != NULL) {
+        esp_mqtt_client_destroy(s_client);
+        s_client = NULL;
+    }
+    s_mqtt_connected = false;
+}
+
 /* Poll the WiFi state; on the disconnected->connected edge, start MQTT.
  * WiFi drops after that are handled by esp-mqtt's own reconnect. */
 static void wifi_poll_cb(void *arg)
@@ -183,8 +266,13 @@ static void wifi_poll_cb(void *arg)
     s_wifi_was_connected = connected;
 }
 
+/* ============================ public API ============================ */
+
 esp_err_t mqtt_manager_init(void)
 {
+    /* Load runtime config (NVS over Kconfig defaults) */
+    cfg_load();
+
     /* Device id: esp32s3_<last 3 MAC bytes> (unique per device) */
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
@@ -201,8 +289,8 @@ esp_err_t mqtt_manager_init(void)
              "devices/%s/cmd_resp", s_device_id);
 
     ESP_LOGI(TAG, "Device id: %s", s_device_id);
+    ESP_LOGI(TAG, "Broker: %s", s_cfg.uri);
     ESP_LOGI(TAG, "Telemetry topic: %s", s_telemetry_topic);
-    ESP_LOGI(TAG, "Command topic: %s", s_cmd_topic);
 
     /* Watch the WiFi state; MQTT starts once WiFi is up */
     esp_timer_create_args_t args = {
@@ -261,4 +349,108 @@ const char *mqtt_manager_get_telemetry_topic(void)
 uint32_t mqtt_manager_get_publish_count(void)
 {
     return s_publish_count;
+}
+
+void mqtt_manager_get_cfg(mqtt_cfg_t *out)
+{
+    if (out != NULL) {
+        *out = s_cfg;
+    }
+}
+
+esp_err_t mqtt_manager_set_cfg(const mqtt_cfg_t *cfg)
+{
+    if (cfg == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_cfg = *cfg;
+    /* Keep sensible bounds */
+    s_cfg.uri[sizeof(s_cfg.uri) - 1] = '\0';
+    s_cfg.username[sizeof(s_cfg.username) - 1] = '\0';
+    s_cfg.password[sizeof(s_cfg.password) - 1] = '\0';
+    s_cfg.client_id[sizeof(s_cfg.client_id) - 1] = '\0';
+
+    esp_err_t ret = cfg_store();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "config save failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    /* Restart the client with the new config */
+    mqtt_teardown();
+    if (wifi_manager_is_connected()) {
+        mqtt_start();
+    }
+    return ESP_OK;
+}
+
+int mqtt_manager_get_interval(void)
+{
+    return (int)(s_interval_us / 1000000LL);
+}
+
+esp_err_t mqtt_manager_set_interval(int seconds)
+{
+    if (seconds < 1) {
+        seconds = 1;
+    }
+    if (seconds > 3600) {
+        seconds = 3600;
+    }
+    s_interval_us = seconds * 1000000LL;
+    ESP_LOGI(TAG, "Telemetry interval -> %d s", seconds);
+
+    /* Persist for the next boot */
+    nvs_handle_t h;
+    esp_err_t ret = nvs_open(NVS_NS, NVS_READWRITE, &h);
+    if (ret == ESP_OK) {
+        ret = nvs_set_i32(h, NVS_KEY_INTERVAL, seconds);
+        if (ret == ESP_OK) {
+            ret = nvs_commit(h);
+        }
+        nvs_close(h);
+    }
+    return ret;
+}
+
+esp_err_t mqtt_manager_disconnect(void)
+{
+    if (s_client == NULL) {
+        return ESP_OK;
+    }
+    esp_mqtt_client_stop(s_client);
+    s_mqtt_connected = false;
+    ESP_LOGI(TAG, "MQTT disconnected by user");
+    return ESP_OK;
+}
+
+esp_err_t mqtt_manager_connect(void)
+{
+    if (s_mqtt_connected) {
+        return ESP_OK; /* already connected */
+    }
+    if (s_client == NULL) {
+        if (wifi_manager_is_connected()) {
+            mqtt_start();
+            return ESP_OK;
+        }
+        ESP_LOGW(TAG, "WiFi not connected, cannot start MQTT");
+        return ESP_FAIL;
+    }
+    esp_mqtt_client_start(s_client);
+    return ESP_OK;
+}
+
+size_t mqtt_manager_get_cmd_history(mqtt_cmd_entry_t *out, size_t max)
+{
+    if (out == NULL || max == 0) {
+        return 0;
+    }
+    size_t n = s_cmd_hist_count < max ? s_cmd_hist_count : max;
+    size_t start = (s_cmd_hist_pos + MQTT_CMD_HISTORY_MAX - s_cmd_hist_count) %
+                   MQTT_CMD_HISTORY_MAX;
+    for (size_t i = 0; i < n; i++) {
+        out[i] = s_cmd_hist[(start + i) % MQTT_CMD_HISTORY_MAX];
+    }
+    return n;
 }

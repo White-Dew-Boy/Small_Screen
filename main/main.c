@@ -22,6 +22,9 @@
 #include "ui_saved_wifi.h"
 #include "ui_nearby_wifi.h"
 #include "ui_mqtt.h"
+#include "ui_mqtt_interval.h"
+#include "ui_mqtt_history.h"
+#include "ui_mqtt_config.h"
 
 static const char *TAG = "app_main";
 
@@ -31,6 +34,9 @@ static lv_obj_t *scr_wifi;
 static lv_obj_t *scr_saved_wifi;
 static lv_obj_t *scr_nearby_wifi;
 static lv_obj_t *scr_mqtt;
+static lv_obj_t *scr_mqtt_interval;
+static lv_obj_t *scr_mqtt_history;
+static lv_obj_t *scr_mqtt_config;
 
 /* Page-switch request produced by the key task and consumed by the LVGL task
  * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
@@ -41,6 +47,9 @@ typedef enum {
     SWITCH_SAVED_WIFI,
     SWITCH_NEARBY_WIFI,
     SWITCH_MQTT,
+    SWITCH_MQTT_INTERVAL,
+    SWITCH_MQTT_HISTORY,
+    SWITCH_MQTT_CONFIG,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
@@ -68,6 +77,29 @@ static void wifi_sub_close(void)
 {
     s_cur_page = 1; /* back to WIFI status page */
     s_switch_req = SWITCH_WIFI;
+}
+
+/* Called from the MQTT status page sub-buttons (LVGL thread) */
+static void mqtt_interval_open(void)
+{
+    s_switch_req = SWITCH_MQTT_INTERVAL;
+}
+
+static void mqtt_history_open(void)
+{
+    s_switch_req = SWITCH_MQTT_HISTORY;
+}
+
+static void mqtt_config_open(void)
+{
+    s_switch_req = SWITCH_MQTT_CONFIG;
+}
+
+/* Called from the MQTT sub-pages back/save (LVGL thread) */
+static void mqtt_sub_close(void)
+{
+    s_cur_page = 2; /* back to MQTT status page */
+    s_switch_req = SWITCH_MQTT;
 }
 
 static void lvgl_task(void *arg)
@@ -102,6 +134,12 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_nearby_wifi);
             } else if (req == SWITCH_MQTT) {
                 lv_scr_load(scr_mqtt);
+            } else if (req == SWITCH_MQTT_INTERVAL) {
+                lv_scr_load(scr_mqtt_interval);
+            } else if (req == SWITCH_MQTT_HISTORY) {
+                lv_scr_load(scr_mqtt_history);
+            } else if (req == SWITCH_MQTT_CONFIG) {
+                lv_scr_load(scr_mqtt_config);
             }
         }
 
@@ -234,6 +272,9 @@ void app_main(void)
     scr_saved_wifi = ui_saved_wifi_create();
     scr_nearby_wifi = ui_nearby_wifi_create();
     scr_mqtt = ui_mqtt_create();
+    scr_mqtt_interval = ui_mqtt_interval_create();
+    scr_mqtt_history = ui_mqtt_history_create();
+    scr_mqtt_config = ui_mqtt_config_create();
     lv_scr_load(scr_shtc3);
 
     // WiFi status page buttons -> saved / nearby pages
@@ -242,6 +283,15 @@ void app_main(void)
     // saved / nearby pages back / confirm -> WiFi status page
     ui_saved_wifi_set_back_cb(wifi_sub_close);
     ui_nearby_wifi_set_back_cb(wifi_sub_close);
+
+    // MQTT status page buttons -> interval / history / config pages
+    ui_mqtt_set_interval_cb(mqtt_interval_open);
+    ui_mqtt_set_history_cb(mqtt_history_open);
+    ui_mqtt_set_config_cb(mqtt_config_open);
+    // MQTT sub-pages back / save -> MQTT status page
+    ui_mqtt_interval_set_back_cb(mqtt_sub_close);
+    ui_mqtt_history_set_back_cb(mqtt_sub_close);
+    ui_mqtt_config_set_back_cb(mqtt_sub_close);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,
