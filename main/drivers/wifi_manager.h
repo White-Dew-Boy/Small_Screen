@@ -141,6 +141,15 @@ esp_err_t wifi_manager_disconnect(void);
 void wifi_manager_get_info(wifi_info_t *info);
 
 /**
+ * @brief Human-readable, short text for a WiFi disconnect reason code
+ *        (wifi_info_t.last_reason, see esp_wifi_types_generic.h).
+ *        Strings are kept short so they fit the 240 px display.
+ * @param[in] reason  Disconnect reason code.
+ * @return Static string (never NULL).
+ */
+const char *wifi_manager_reason_to_str(int16_t reason);
+
+/**
  * @brief Check whether WiFi is connected and has an IP address.
  * @return true if connected.
  */

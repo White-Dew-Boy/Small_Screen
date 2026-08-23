@@ -22,20 +22,6 @@ static void (*s_back_cb)(void) = NULL;
 
 static saved_mode_t s_mode = SAVED_IDLE;
 
-/* Human-readable text for a WiFi disconnect reason. */
-static const char *reason_to_str(int16_t reason)
-{
-    switch (reason) {
-    case 201: return "Cannot find this WiFi";
-    case 202: return "Wrong password";
-    case 203: return "Association failed";
-    case 204: return "Handshake timeout";
-    case 205: return "Connection lost";
-    case 15:  return "4-way handshake timeout";
-    default:  return "Connection failed";
-    }
-}
-
 void ui_saved_wifi_set_back_cb(void (*cb)(void))
 {
     s_back_cb = cb;
@@ -99,7 +85,7 @@ static void poll_timer_cb(lv_timer_t *timer)
          * but we surface the reason now. */
         s_mode = SAVED_DONE;
         lv_label_set_text_fmt(s_msg_label, "Failed: %s",
-                              reason_to_str(info.last_reason));
+                              wifi_manager_reason_to_str(info.last_reason));
         lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xF44336), 0);
     }
 }

@@ -51,23 +51,6 @@ static const char *rssi_to_bar(int8_t rssi)
     return "*   ";
 }
 
-/* Human-readable text for a WiFi disconnect reason. */
-static const char *reason_to_str(int16_t reason)
-{
-    switch (reason) {
-    case 201: return "AP not found (2.4GHz?)";
-    case 202: return "Wrong password";
-    case 203: return "Association failed";
-    case 204: return "Handshake timeout";
-    case 205: return "Connection lost";
-    case 15:  return "4-way handshake timeout";
-    case 210: return "No compatible security";
-    case 211: return "No AP in auth mode";
-    case 212: return "No AP in RSSI range";
-    default:  return "Unknown";
-    }
-}
-
 /**
  * @brief LVGL timer callback: refresh the WiFi status page.
  *        Runs inside lv_timer_handler(), reads wifi_manager snapshot
@@ -110,9 +93,8 @@ static void wifi_display_timer_cb(lv_timer_t *timer)
         lv_label_set_text(ip_label, "IP: --");
         lv_label_set_text(rssi_label, "RSSI: --");
         if (info.last_reason != 0) {
-            lv_label_set_text_fmt(reason_label, "Reason %d: %s",
-                                  (int)info.last_reason,
-                                  reason_to_str(info.last_reason));
+            lv_label_set_text(reason_label,
+                              wifi_manager_reason_to_str(info.last_reason));
         } else {
             lv_label_set_text(reason_label, "");
         }

@@ -194,10 +194,14 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         /* Remember the reason so the UI can show why (201: AP not found,
          * 202: wrong password, 204: handshake timeout, ...). An initiated
          * disconnect (network switch / scan / manual) is not a failure:
-         * keep last_reason clear so the UI does not report it as one. */
+         * keep last_reason clear and reset the auto-reconnect counter so
+         * the UI does not count user-initiated switches as reconnects. */
+        bool manual = false;
         xSemaphoreTake(s_lock, portMAX_DELAY);
-        if (s_manual_switch) {
+        manual = s_manual_switch;
+        if (manual) {
             s_info.last_reason = 0;
+            s_info.reconnect_cnt = 0;
         } else {
             s_info.last_reason = disc->reason;
         }
@@ -213,7 +217,13 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             return;
         }
 
-        if (s_retry_cnt < WIFI_MAX_RETRY) {
+        if (manual) {
+            /* User switched networks: reconnect immediately with the new
+             * credentials, without counting this as an auto-reconnect. */
+            s_retry_cnt = 0;
+            set_state(WIFI_STATE_CONNECTING);
+            esp_wifi_connect();
+        } else if (s_retry_cnt < WIFI_MAX_RETRY) {
             s_retry_cnt++;
             xSemaphoreTake(s_lock, portMAX_DELAY);
             s_info.reconnect_cnt++;
@@ -271,6 +281,9 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_info.state = WIFI_STATE_CONNECTED;
         s_info.last_reason = 0; /* clear any previous failure */
+        /* Reconnect counter tracks the CURRENT outage: once we are back
+         * online it resets, so it only grows while reconnecting. */
+        s_info.reconnect_cnt = 0;
         snprintf(s_info.ip, sizeof(s_info.ip), IPSTR, IP2STR(&event->ip_info.ip));
         /* SSID is refreshed lazily in wifi_manager_get_info() via
          * esp_wifi_sta_get_ap_info(). */
@@ -556,6 +569,33 @@ bool wifi_manager_is_connected(void)
     wifi_info_t info;
     wifi_manager_get_info(&info);
     return info.state == WIFI_STATE_CONNECTED;
+}
+
+const char *wifi_manager_reason_to_str(int16_t reason)
+{
+    switch (reason) {
+    case 1:  return "Unspecified";
+    case 2:  return "Auth expired";
+    case 4:  return "Idle timeout";
+    case 15: return "Handshake timeout";
+    case 23: return "802.1X auth failed";
+    case 46: return "Peer disconnected";
+    case 47: return "AP disconnected";
+    case 200: return "Signal lost";
+    case 201: return "AP not found";
+    case 202: return "Wrong password";
+    case 203: return "Assoc failed";
+    case 204: return "Handshake timeout";
+    case 205: return "Connection failed";
+    case 206: return "AP reset";
+    case 207: return "Roaming";
+    case 208: return "AP busy";
+    case 209: return "SA query timeout";
+    case 210: return "Incompatible security";
+    case 211: return "Auth mode mismatch";
+    case 212: return "Signal too weak";
+    default:  return "Unknown";
+    }
 }
 
 esp_err_t wifi_manager_scan_start(void)
