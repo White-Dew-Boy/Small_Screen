@@ -6,11 +6,12 @@ static const struct {
     const char *name;
     uint32_t color;
 } s_entries[] = {
-    { "Sensor",     0x1565C0 }, /* blue */
-    { "WiFi",       0x1565C0 },
-    { "MQTT",       0x2E7D32 }, /* green */
-    { "LED",        0xE65100 }, /* orange */
-    { "SD Card",    0x00695C }, /* teal */
+    { "Sensor",   0x1565C0 }, /* blue   */
+    { "WiFi",     0x1565C0 },
+    { "MQTT",     0x2E7D32 }, /* green  */
+    { "LED",      0xE65100 }, /* orange */
+    { "SD Card",  0x00695C }, /* teal   */
+    { "System",   0x6A1B9A }, /* purple */
 };
 
 /* Callback to open a page (set by main.c, invoked from the LVGL thread) */
@@ -98,9 +99,8 @@ lv_obj_t *ui_home_create(void)
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
-    /* 2x2 grid of page entries + SD Card in row 2 (same height as the
-     * Deep Sleep button) */
-    for (int i = 0; i < 5; i++) {
+    /* 2x3 grid of page entries (same height as the Deep Sleep button) */
+    for (int i = 0; i < 6; i++) {
         int col = i % 2;
         int row = i / 2;
 

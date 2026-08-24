@@ -2,11 +2,12 @@
 #include "lvgl.h"
 
 /* Page indexes of the KEY2 cycle (must match main.c) */
-#define HOME_PAGE_SENSOR 0
-#define HOME_PAGE_WIFI   1
-#define HOME_PAGE_MQTT   2
-#define HOME_PAGE_LED    3
-#define HOME_PAGE_SD     4
+#define HOME_PAGE_SENSOR  0
+#define HOME_PAGE_WIFI    1
+#define HOME_PAGE_MQTT    2
+#define HOME_PAGE_LED     3
+#define HOME_PAGE_SD      4
+#define HOME_PAGE_SYSINFO 5
 
 /**
  * @brief Create the home menu page listing all main screens. Tapping an

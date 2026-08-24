@@ -31,6 +31,7 @@
 #include "ui_led_custom.h"
 #include "ui_home.h"
 #include "ui_sd.h"
+#include "ui_sysinfo.h"
 
 static const char *TAG = "app_main";
 
@@ -48,6 +49,10 @@ static lv_obj_t *scr_led;
 static lv_obj_t *scr_led_preset;
 static lv_obj_t *scr_led_custom;
 static lv_obj_t *scr_sd;
+static lv_obj_t *scr_sysinfo;
+static lv_obj_t *scr_sysinfo_cpu;
+static lv_obj_t *scr_sysinfo_stack;
+static lv_obj_t *scr_sysinfo_about;
 
 /* Page-switch request produced by the key task and consumed by the LVGL task
  * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
@@ -66,12 +71,16 @@ typedef enum {
     SWITCH_LED_PRESET,
     SWITCH_LED_CUSTOM,
     SWITCH_SD,
+    SWITCH_SYSINFO,
+    SWITCH_SYSINFO_CPU,
+    SWITCH_SYSINFO_STACK,
+    SWITCH_SYSINFO_ABOUT,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
 /* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT,
- * 3 = LED, 4 = SD). Shared with the sub-page callbacks so the cycle stays
- * in sync (they return to their parent page). */
+ * 3 = LED, 4 = SD, 5 = SYSINFO). Shared with the sub-page callbacks so the
+ * cycle stays in sync (they return to their parent page). */
 static int s_cur_page = 0;
 
 /* Called from the WiFi status page "Saved WiFi" button (LVGL thread) */
@@ -140,6 +149,28 @@ static void led_sub_close(void)
     s_switch_req = SWITCH_LED;
 }
 
+/* Called from the System Info page buttons (LVGL thread) */
+static void sysinfo_cpu_open(void)
+{
+    s_switch_req = SWITCH_SYSINFO_CPU;
+}
+
+static void sysinfo_stack_open(void)
+{
+    s_switch_req = SWITCH_SYSINFO_STACK;
+}
+
+static void sysinfo_about_open(void)
+{
+    s_switch_req = SWITCH_SYSINFO_ABOUT;
+}
+
+/* Called from the System Info sub-pages back button (LVGL thread) */
+static void sysinfo_sub_close(void)
+{
+    s_switch_req = SWITCH_SYSINFO;
+}
+
 /* Called from the home menu: open the selected page (LVGL thread) */
 static void home_open_page(int page)
 {
@@ -156,6 +187,9 @@ static void home_open_page(int page)
         break;
     case HOME_PAGE_SD:
         s_switch_req = SWITCH_SD;
+        break;
+    case HOME_PAGE_SYSINFO:
+        s_switch_req = SWITCH_SYSINFO;
         break;
     default:
         s_switch_req = SWITCH_LED;
@@ -212,6 +246,14 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_led_custom);
             } else if (req == SWITCH_SD) {
                 lv_scr_load(scr_sd);
+            } else if (req == SWITCH_SYSINFO) {
+                lv_scr_load(scr_sysinfo);
+            } else if (req == SWITCH_SYSINFO_CPU) {
+                lv_scr_load(scr_sysinfo_cpu);
+            } else if (req == SWITCH_SYSINFO_STACK) {
+                lv_scr_load(scr_sysinfo_stack);
+            } else if (req == SWITCH_SYSINFO_ABOUT) {
+                lv_scr_load(scr_sysinfo_about);
             }
         }
 
@@ -221,8 +263,8 @@ static void lvgl_task(void *arg)
 }
 
 /* Scan the two buttons; page switches are applied by the LVGL task.
- * KEY2 cycles through pages: sensor -> wifi -> mqtt -> led -> sd -> sensor ...
- * KEY3 jumps back to the home menu. */
+ * KEY2 cycles through pages: sensor -> wifi -> mqtt -> led -> sd ->
+ * sysinfo -> sensor ...  KEY3 jumps back to the home menu. */
 static void key_task(void *arg)
 {
     (void)arg;
@@ -230,7 +272,7 @@ static void key_task(void *arg)
     while (1) {
         key_scan();
         if (key_pressed_edge(KEY_ID_2)) {
-            s_cur_page = (s_cur_page + 1) % 5;
+            s_cur_page = (s_cur_page + 1) % 6;
             switch (s_cur_page) {
             case 0:
                 s_switch_req = SWITCH_SHTC3;
@@ -244,8 +286,11 @@ static void key_task(void *arg)
             case 3:
                 s_switch_req = SWITCH_LED;
                 break;
-            default:
+            case 4:
                 s_switch_req = SWITCH_SD;
+                break;
+            default:
+                s_switch_req = SWITCH_SYSINFO;
                 break;
             }
         } else if (key_pressed_edge(KEY_ID_3)) {
@@ -370,6 +415,10 @@ void app_main(void)
     scr_led_preset = ui_led_preset_create();
     scr_led_custom = ui_led_custom_create();
     scr_sd = ui_sd_create();
+    scr_sysinfo = ui_sysinfo_create();
+    scr_sysinfo_cpu = ui_sysinfo_cpu_create();
+    scr_sysinfo_stack = ui_sysinfo_stack_create();
+    scr_sysinfo_about = ui_sysinfo_about_create();
     lv_scr_load(scr_home);
 
     // Home menu entries -> pages; deep sleep button (implemented in power.c)
@@ -398,6 +447,15 @@ void app_main(void)
     // LED sub-pages back / color picked -> LED control page
     ui_led_preset_set_back_cb(led_sub_close);
     ui_led_custom_set_back_cb(led_sub_close);
+
+    // System Info page buttons -> CPU load / stack HWM / about pages
+    ui_sysinfo_set_cpu_cb(sysinfo_cpu_open);
+    ui_sysinfo_set_stack_cb(sysinfo_stack_open);
+    ui_sysinfo_set_about_cb(sysinfo_about_open);
+    // System Info sub-pages back -> System Info page
+    ui_sysinfo_cpu_set_back_cb(sysinfo_sub_close);
+    ui_sysinfo_stack_set_back_cb(sysinfo_sub_close);
+    ui_sysinfo_about_set_back_cb(sysinfo_sub_close);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,
