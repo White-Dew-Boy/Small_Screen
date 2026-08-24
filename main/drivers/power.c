@@ -2,6 +2,8 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
+#include "esp_wifi.h"
 
 static const char *TAG = "power";
 
@@ -64,4 +66,31 @@ esp_err_t power_off(power_id_t id)
         return ESP_ERR_INVALID_ARG;
     }
     return gpio_set_level(s_power_gpios[id], 0);
+}
+
+void power_deep_sleep(void)
+{
+    ESP_LOGI(TAG, "Entering deep sleep (wake on KEY1 press)");
+
+    /* Stop the radio so it does not keep draining during sleep */
+    esp_wifi_stop();
+
+    /* Power off every module that can be cut */
+    for (int i = 0; i < POWER_ID_NUM; i++) {
+        gpio_set_level(s_power_gpios[i], 0);
+    }
+
+    /* KEY1 (GPIO4) is the power button: idle low, pulled high when
+     * pressed. Switch it to input with pull-down so the level is stable
+     * and the press can be detected; the MP2636 latch is expected to
+     * hold itself during sleep. */
+    gpio_set_direction(POWER_KEY1_GPIO, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(POWER_KEY1_GPIO, GPIO_PULLDOWN_ONLY);
+
+    /* Wake when KEY1 is pressed (goes high) */
+    esp_sleep_enable_ext1_wakeup((1ULL << POWER_KEY1_GPIO),
+                                 ESP_EXT1_WAKEUP_ANY_HIGH);
+
+    esp_deep_sleep_start();
+    /* Not reached */
 }

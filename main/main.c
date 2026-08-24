@@ -180,6 +180,7 @@ static void lvgl_task(void *arg)
         if (req != SWITCH_NONE) {
             s_switch_req = SWITCH_NONE;
             if (req == SWITCH_HOME) {
+                ui_home_reset_hint(); /* clear stale press-count text */
                 lv_scr_load(scr_home);
             } else if (req == SWITCH_SHTC3) {
                 lv_scr_load(scr_shtc3);
@@ -354,8 +355,9 @@ void app_main(void)
     scr_led_custom = ui_led_custom_create();
     lv_scr_load(scr_home);
 
-    // Home menu entries -> pages
+    // Home menu entries -> pages; deep sleep button (implemented in power.c)
     ui_home_set_page_cb(home_open_page);
+    ui_home_set_deepsleep_cb(power_deep_sleep);
 
     // WiFi status page buttons -> saved / nearby pages
     ui_wifi_set_saved_cb(saved_wifi_open);

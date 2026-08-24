@@ -45,3 +45,15 @@ esp_err_t power_on(power_id_t id);
  * @return ESP_OK on success, ESP_ERR_INVALID_ARG if id out of range.
  */
 esp_err_t power_off(power_id_t id);
+
+/**
+ * @brief Enter deep sleep until one of the buttons is pressed.
+ *
+ * Stops WiFi, powers off all modules, and configures EXT1 GPIO wake-up on
+ * KEY2/KEY3 (active-low, i.e. pressing either button wakes the chip).
+ * After wake the chip restarts from app_main, which re-initializes all
+ * modules.
+ *
+ * @warning Does not return.
+ */
+void power_deep_sleep(void);
