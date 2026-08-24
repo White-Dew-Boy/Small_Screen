@@ -29,10 +29,12 @@
 #include "ui_led.h"
 #include "ui_led_preset.h"
 #include "ui_led_custom.h"
+#include "ui_home.h"
 
 static const char *TAG = "app_main";
 
 /* UI screens, created once and switched with KEY2 */
+static lv_obj_t *scr_home;
 static lv_obj_t *scr_shtc3;
 static lv_obj_t *scr_wifi;
 static lv_obj_t *scr_saved_wifi;
@@ -49,6 +51,7 @@ static lv_obj_t *scr_led_custom;
  * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
 typedef enum {
     SWITCH_NONE = 0,
+    SWITCH_HOME,
     SWITCH_SHTC3,
     SWITCH_WIFI,
     SWITCH_SAVED_WIFI,
@@ -64,8 +67,8 @@ typedef enum {
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
 /* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT,
- * 3 = LED). Shared with the saved/nearby WiFi page callbacks so the cycle
- * stays in sync (they return to the WIFI status page). */
+ * 3 = LED). Shared with the sub-page callbacks so the cycle stays in sync
+ * (they return to their parent page). */
 static int s_cur_page = 0;
 
 /* Called from the WiFi status page "Saved WiFi" button (LVGL thread) */
@@ -134,6 +137,26 @@ static void led_sub_close(void)
     s_switch_req = SWITCH_LED;
 }
 
+/* Called from the home menu: open the selected page (LVGL thread) */
+static void home_open_page(int page)
+{
+    s_cur_page = page;
+    switch (page) {
+    case HOME_PAGE_SENSOR:
+        s_switch_req = SWITCH_SHTC3;
+        break;
+    case HOME_PAGE_WIFI:
+        s_switch_req = SWITCH_WIFI;
+        break;
+    case HOME_PAGE_MQTT:
+        s_switch_req = SWITCH_MQTT;
+        break;
+    default:
+        s_switch_req = SWITCH_LED;
+        break;
+    }
+}
+
 static void lvgl_task(void *arg)
 {
     (void)arg;
@@ -156,7 +179,9 @@ static void lvgl_task(void *arg)
         switch_req_t req = s_switch_req;
         if (req != SWITCH_NONE) {
             s_switch_req = SWITCH_NONE;
-            if (req == SWITCH_SHTC3) {
+            if (req == SWITCH_HOME) {
+                lv_scr_load(scr_home);
+            } else if (req == SWITCH_SHTC3) {
                 lv_scr_load(scr_shtc3);
             } else if (req == SWITCH_WIFI) {
                 lv_scr_load(scr_wifi);
@@ -188,7 +213,7 @@ static void lvgl_task(void *arg)
 
 /* Scan the two buttons; page switches are applied by the LVGL task.
  * KEY2 cycles through pages: sensor -> wifi -> mqtt -> led -> sensor ...
- * KEY3 jumps back to the sensor dashboard. */
+ * KEY3 jumps back to the home menu. */
 static void key_task(void *arg)
 {
     (void)arg;
@@ -207,8 +232,7 @@ static void key_task(void *arg)
                 s_switch_req = SWITCH_LED;
             }
         } else if (key_pressed_edge(KEY_ID_3)) {
-            s_cur_page = 0;
-            s_switch_req = SWITCH_SHTC3;
+            s_switch_req = SWITCH_HOME;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -297,7 +321,7 @@ void app_main(void)
     // LCD (uses the SPI bus created by sd_card_init())
     ESP_ERROR_CHECK(lcd_init());
 
-    // Buttons (KEY2: cycle pages, KEY3: sensor page)
+    // Buttons (KEY2: cycle pages, KEY3: home menu)
     ESP_ERROR_CHECK(key_init());
 
     // RGB LED strip (3x WS2812). Non-fatal: the UI still works without it.
@@ -315,7 +339,8 @@ void app_main(void)
     ESP_ERROR_CHECK(lv_port_disp_init());
     ESP_ERROR_CHECK(lv_port_indev_init());
 
-    // Build all pages, start on the sensor dashboard
+    // Build all pages, start on the home menu
+    scr_home = ui_home_create();
     scr_shtc3 = ui_shtc3_create();
     scr_wifi = ui_wifi_create();
     scr_saved_wifi = ui_saved_wifi_create();
@@ -327,7 +352,10 @@ void app_main(void)
     scr_led = ui_led_create();
     scr_led_preset = ui_led_preset_create();
     scr_led_custom = ui_led_custom_create();
-    lv_scr_load(scr_shtc3);
+    lv_scr_load(scr_home);
+
+    // Home menu entries -> pages
+    ui_home_set_page_cb(home_open_page);
 
     // WiFi status page buttons -> saved / nearby pages
     ui_wifi_set_saved_cb(saved_wifi_open);

@@ -14,6 +14,7 @@ idf_component_register(
         "gui/ui_led.c"
         "gui/ui_led_preset.c"
         "gui/ui_led_custom.c"
+        "gui/ui_home.c"
         "drivers/ft6336.c"
         "drivers/i2c_bus.c"
         "drivers/key.c"
