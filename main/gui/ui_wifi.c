@@ -41,6 +41,13 @@ static void nearby_click_cb(lv_event_t *e)
     }
 }
 
+/* Disconnect from the current AP and stop auto-reconnect. */
+static void disconnect_click_cb(lv_event_t *e)
+{
+    (void)e;
+    wifi_manager_disconnect();
+}
+
 /* Convert RSSI [dBm] to a signal strength bar string.
  * >= -50 excellent, >= -65 good, >= -75 fair, else poor. */
 static const char *rssi_to_bar(int8_t rssi)
@@ -126,28 +133,39 @@ lv_obj_t *ui_wifi_create(void)
     ssid_label = lv_label_create(scr);
     lv_label_set_text(ssid_label, "SSID: --");
     lv_obj_set_style_text_color(ssid_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(ssid_label, LV_ALIGN_CENTER, 0, -25);
+    lv_obj_align(ssid_label, LV_ALIGN_CENTER, 0, -35);
 
     ip_label = lv_label_create(scr);
     lv_label_set_text(ip_label, "IP: --");
     lv_obj_set_style_text_color(ip_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(ip_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(ip_label, LV_ALIGN_CENTER, 0, -12);
 
     rssi_label = lv_label_create(scr);
     lv_label_set_text(rssi_label, "RSSI: --");
     lv_obj_set_style_text_color(rssi_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(rssi_label, LV_ALIGN_CENTER, 0, 25);
+    lv_obj_align(rssi_label, LV_ALIGN_CENTER, 0, 11);
 
     retry_label = lv_label_create(scr);
     lv_label_set_text(retry_label, "Auto reconnect: 0 time(s)");
     lv_obj_set_style_text_color(retry_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(retry_label, LV_ALIGN_CENTER, 0, 55);
+    lv_obj_align(retry_label, LV_ALIGN_CENTER, 0, 34);
 
-    /* Disconnect reason (shown when not connected, e.g. "Reason 201: AP not found") */
+    /* Disconnect reason (shown when not connected, e.g. "AP not found") */
     reason_label = lv_label_create(scr);
     lv_label_set_text(reason_label, "");
     lv_obj_set_style_text_color(reason_label, lv_color_hex(0xFFB74D), 0);
-    lv_obj_align(reason_label, LV_ALIGN_CENTER, 0, 78);
+    lv_obj_align(reason_label, LV_ALIGN_CENTER, 0, 55);
+
+    /* Disconnect button (full width, above the entry buttons) */
+    lv_obj_t *disc_btn = lv_btn_create(scr);
+    lv_obj_set_size(disc_btn, 216, 34);
+    lv_obj_align(disc_btn, LV_ALIGN_TOP_MID, 0, 222);
+    lv_obj_set_style_bg_color(disc_btn, lv_color_hex(0xC62828), 0);
+    lv_obj_set_style_text_color(disc_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *disc_label = lv_label_create(disc_btn);
+    lv_label_set_text(disc_label, "Disconnect");
+    lv_obj_center(disc_label);
+    lv_obj_add_event_cb(disc_btn, disconnect_click_cb, LV_EVENT_CLICKED, NULL);
 
     /* Bottom buttons: Saved WiFi | Nearby WiFi */
     lv_obj_t *saved_btn = lv_btn_create(scr);
