@@ -16,6 +16,7 @@ idf_component_register(
         "gui/ui_led_custom.c"
         "gui/ui_home.c"
         "gui/ui_sd.c"
+        "gui/ui_sysinfo.c"
         "drivers/ft6336.c"
         "drivers/i2c_bus.c"
         "drivers/key.c"
@@ -46,4 +47,7 @@ idf_component_register(
         esp_event
         nvs_flash
         mqtt
+        esp_partition
+        bootloader_support
+        esp_psram
 )
