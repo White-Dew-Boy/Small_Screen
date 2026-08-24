@@ -21,3 +21,17 @@ lv_obj_t *ui_home_create(void);
  *        switch to that page from the LVGL thread.
  */
 void ui_home_set_page_cb(void (*cb)(int page));
+
+/**
+ * @brief Register a callback invoked when the "Deep Sleep" button is
+ *        pressed. The callback must configure the wake-up source and put
+ *        the chip into deep sleep.
+ */
+void ui_home_set_deepsleep_cb(void (*cb)(void));
+
+/**
+ * @brief Reset the deep-sleep press counter and restore the default
+ *        bottom hint. Call when the page is re-shown (e.g. KEY3 back to
+ *        Home) so stale "Press N more to sleep" text clears.
+ */
+void ui_home_reset_hint(void);

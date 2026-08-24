@@ -161,10 +161,12 @@ static void mqtt_display_timer_cb(lv_timer_t *timer)
     if (connected) {
         lv_label_set_text(state_label, "MQTT: Connected");
         lv_obj_set_style_text_color(state_label, lv_color_hex(0x4CAF50), 0);
+        lv_obj_set_style_bg_color(connect_btn, lv_color_hex(0xE53935), 0);
         lv_label_set_text(connect_btn_label, "Disconnect");
     } else {
         lv_label_set_text(state_label, "MQTT: Disconnected");
         lv_obj_set_style_text_color(state_label, lv_color_hex(0xF44336), 0);
+        lv_obj_set_style_bg_color(connect_btn, lv_color_hex(0x1565C0), 0);
         lv_label_set_text(connect_btn_label, "Connect");
     }
 }
@@ -218,8 +220,8 @@ lv_obj_t *ui_mqtt_create(void)
     update_broker_info();
 
     /* Bottom action buttons (2 x 2):
-     *   Connect/Disconnect | Interval
-     *   History            | Config      */
+     *   History            | Config      
+     *   Connect/Disconnect | Interval    */
     connect_btn = lv_btn_create(scr);
     lv_obj_set_size(connect_btn, 102, 38);
     lv_obj_align(connect_btn, LV_ALIGN_BOTTOM_LEFT, 12, -10);
