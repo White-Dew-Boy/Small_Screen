@@ -30,6 +30,7 @@
 #include "ui_led_preset.h"
 #include "ui_led_custom.h"
 #include "ui_home.h"
+#include "ui_sd.h"
 
 static const char *TAG = "app_main";
 
@@ -46,6 +47,7 @@ static lv_obj_t *scr_mqtt_config;
 static lv_obj_t *scr_led;
 static lv_obj_t *scr_led_preset;
 static lv_obj_t *scr_led_custom;
+static lv_obj_t *scr_sd;
 
 /* Page-switch request produced by the key task and consumed by the LVGL task
  * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
@@ -63,12 +65,13 @@ typedef enum {
     SWITCH_LED,
     SWITCH_LED_PRESET,
     SWITCH_LED_CUSTOM,
+    SWITCH_SD,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
 /* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT,
- * 3 = LED). Shared with the sub-page callbacks so the cycle stays in sync
- * (they return to their parent page). */
+ * 3 = LED, 4 = SD). Shared with the sub-page callbacks so the cycle stays
+ * in sync (they return to their parent page). */
 static int s_cur_page = 0;
 
 /* Called from the WiFi status page "Saved WiFi" button (LVGL thread) */
@@ -151,6 +154,9 @@ static void home_open_page(int page)
     case HOME_PAGE_MQTT:
         s_switch_req = SWITCH_MQTT;
         break;
+    case HOME_PAGE_SD:
+        s_switch_req = SWITCH_SD;
+        break;
     default:
         s_switch_req = SWITCH_LED;
         break;
@@ -204,6 +210,8 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_led_preset);
             } else if (req == SWITCH_LED_CUSTOM) {
                 lv_scr_load(scr_led_custom);
+            } else if (req == SWITCH_SD) {
+                lv_scr_load(scr_sd);
             }
         }
 
@@ -213,7 +221,7 @@ static void lvgl_task(void *arg)
 }
 
 /* Scan the two buttons; page switches are applied by the LVGL task.
- * KEY2 cycles through pages: sensor -> wifi -> mqtt -> led -> sensor ...
+ * KEY2 cycles through pages: sensor -> wifi -> mqtt -> led -> sd -> sensor ...
  * KEY3 jumps back to the home menu. */
 static void key_task(void *arg)
 {
@@ -222,15 +230,23 @@ static void key_task(void *arg)
     while (1) {
         key_scan();
         if (key_pressed_edge(KEY_ID_2)) {
-            s_cur_page = (s_cur_page + 1) % 4;
-            if (s_cur_page == 0) {
+            s_cur_page = (s_cur_page + 1) % 5;
+            switch (s_cur_page) {
+            case 0:
                 s_switch_req = SWITCH_SHTC3;
-            } else if (s_cur_page == 1) {
+                break;
+            case 1:
                 s_switch_req = SWITCH_WIFI;
-            } else if (s_cur_page == 2) {
+                break;
+            case 2:
                 s_switch_req = SWITCH_MQTT;
-            } else {
+                break;
+            case 3:
                 s_switch_req = SWITCH_LED;
+                break;
+            default:
+                s_switch_req = SWITCH_SD;
+                break;
             }
         } else if (key_pressed_edge(KEY_ID_3)) {
             s_switch_req = SWITCH_HOME;
@@ -353,6 +369,7 @@ void app_main(void)
     scr_led = ui_led_create();
     scr_led_preset = ui_led_preset_create();
     scr_led_custom = ui_led_custom_create();
+    scr_sd = ui_sd_create();
     lv_scr_load(scr_home);
 
     // Home menu entries -> pages; deep sleep button (implemented in power.c)

@@ -10,6 +10,7 @@ static const struct {
     { "WiFi",       0x1565C0 },
     { "MQTT",       0x2E7D32 }, /* green */
     { "LED",        0xE65100 }, /* orange */
+    { "SD Card",    0x00695C }, /* teal */
 };
 
 /* Callback to open a page (set by main.c, invoked from the LVGL thread) */
@@ -97,8 +98,9 @@ lv_obj_t *ui_home_create(void)
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
-    /* 2x2 grid of page entries (same height as the Deep Sleep button) */
-    for (int i = 0; i < 4; i++) {
+    /* 2x2 grid of page entries + SD Card in row 2 (same height as the
+     * Deep Sleep button) */
+    for (int i = 0; i < 5; i++) {
         int col = i % 2;
         int row = i / 2;
 
@@ -117,10 +119,10 @@ lv_obj_t *ui_home_create(void)
                             (void *)(intptr_t)i);
     }
 
-    /* Deep sleep button (full width) */
+    /* Deep sleep button (full width, below the 3rd grid row) */
     lv_obj_t *ds_btn = lv_btn_create(scr);
     lv_obj_set_size(ds_btn, 216, 40);
-    lv_obj_align(ds_btn, LV_ALIGN_TOP_MID, 0, 158);
+    lv_obj_align(ds_btn, LV_ALIGN_TOP_MID, 0, 210);
     lv_obj_set_style_bg_color(ds_btn, lv_color_hex(0x4527A0), 0);
     lv_obj_set_style_text_color(ds_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_radius(ds_btn, 8, 0);

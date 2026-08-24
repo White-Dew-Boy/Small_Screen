@@ -6,6 +6,7 @@
 #define HOME_PAGE_WIFI   1
 #define HOME_PAGE_MQTT   2
 #define HOME_PAGE_LED    3
+#define HOME_PAGE_SD     4
 
 /**
  * @brief Create the home menu page listing all main screens. Tapping an

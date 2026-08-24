@@ -4,6 +4,7 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "driver/spi_master.h"
 #include "driver/ledc.h"
@@ -19,6 +20,47 @@
 
 static const char *TAG = "lcd_driver";
 esp_lcd_panel_handle_t panel_handle;
+
+/* Flush-completion signal: the LCD and the SD card share one SPI bus, and
+ * the SD probe must never run while an LCD transfer is in flight on the
+ * hardware (that combination trips an ESP-IDF SPI assert). The LVGL flush
+ * therefore waits for the panel io to finish before returning, and all SD
+ * probing happens from the same (LVGL) task — see ui_sd.c. */
+static SemaphoreHandle_t s_flush_done = NULL;
+
+/* Called from the SPI ISR when the last color chunk of a draw_bitmap()
+ * completes. Return value is ignored by the panel io. */
+static bool lcd_color_done_cb(esp_lcd_panel_io_handle_t panel_io,
+                              esp_lcd_panel_io_event_data_t *edata,
+                              void *user_ctx)
+{
+    (void)panel_io;
+    (void)edata;
+    (void)user_ctx;
+    BaseType_t hi_task_woken = pdFALSE;
+    xSemaphoreGiveFromISR(s_flush_done, &hi_task_woken);
+    if (hi_task_woken) {
+        portYIELD_FROM_ISR();
+    }
+    return false;
+}
+
+/* Clear any stale completion signal before starting a new transfer. */
+void lcd_flush_begin(void)
+{
+    if (s_flush_done != NULL) {
+        xSemaphoreTake(s_flush_done, 0);
+    }
+}
+
+/* Block until the current color transfer completes (bounded wait as a
+ * safety net — a normal 240x320 flush takes only a few ms). */
+void lcd_flush_wait(void)
+{
+    if (s_flush_done != NULL) {
+        xSemaphoreTake(s_flush_done, pdMS_TO_TICKS(1000));
+    }
+}
 
 void gb_swap_buf(uint16_t *pixels, int count)
 {
@@ -42,6 +84,10 @@ esp_err_t lcd_driver_init(void)
         return ESP_ERR_INVALID_STATE;
     }
 
+    /* Flush-completion semaphore: given by lcd_color_done_cb (SPI ISR) when
+     * the last color chunk of a draw_bitmap() has been sent. */
+    s_flush_done = xSemaphoreCreateBinary();
+
     esp_lcd_panel_io_spi_config_t io_config = {
         .cs_gpio_num = LCD_CS,
         .dc_gpio_num = LCD_DC,
@@ -50,6 +96,7 @@ esp_err_t lcd_driver_init(void)
         .trans_queue_depth = 10,
         .lcd_cmd_bits = 8,
         .lcd_param_bits = 8,
+        .on_color_trans_done = lcd_color_done_cb,
     };
     esp_lcd_panel_io_handle_t io_handle = NULL;
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));

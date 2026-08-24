@@ -23,7 +23,16 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
     int w = area->x2 - area->x1 + 1;
     int h = area->y2 - area->y1 + 1;
     gb_swap_buf((uint16_t *)color_p, w * h);
+
+    /* Synchronous flush: wait until the panel io has really finished.
+     * The LCD and the SD card share one SPI bus; if the transfer were left
+     * running in the background while an SD probe starts, the shared host
+     * would trip an ESP-IDF SPI assert. Waiting here keeps every SPI
+     * transfer (LCD flush + SD probe) serialized in the LVGL task. */
+    lcd_flush_begin();
     esp_lcd_panel_draw_bitmap(panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, color_p);
+    lcd_flush_wait();
+
     lv_disp_flush_ready(drv);
 }
 
