@@ -86,3 +86,32 @@ menu "Time Configuration"
             well too.
 
 endmenu
+
+menu "Upload Server Configuration"
+
+    config UPLOAD_SERVER_PORT
+        int "HTTP upload server port"
+        default 80
+        range 1 65535
+        help
+            TCP port the file upload/download server listens on. The
+            device must be connected to WiFi; open http://<device-ip>:<port>/
+            in a browser to upload files to the SD card.
+
+    config UPLOAD_DIR
+        string "Upload directory on SD card"
+        default "/sdcard/esp32_files"
+        help
+            Flat directory where uploaded files are stored. Duplicate
+            names get a numeric suffix automatically (file.txt,
+            file_1.txt, ...). The directory is created if missing.
+
+    config UPLOAD_MAX_SIZE_MB
+        int "Maximum single-file upload size (MB)"
+        default 64
+        range 1 4000
+        help
+            Upper bound for one upload; larger requests are rejected
+            before any data is written to the card.
+
+endmenu

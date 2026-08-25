@@ -28,6 +28,7 @@ idf_component_register(
         "drivers/rgb_led.c"
         "drivers/sd_card.c"
         "drivers/sd_file.c"
+        "drivers/upload_server.c"
         "drivers/shtc3.c"
         "drivers/wifi_manager.c"
         "drivers/mqtt_manager.c"
@@ -45,6 +46,7 @@ idf_component_register(
         driver 
         fatfs 
         sdmmc
+        esp_http_server
         led_strip
         esp_timer
         esp_wifi

@@ -1,6 +1,8 @@
 #include "ui_sd.h"
 #include "lvgl.h"
 #include "sd_card.h"
+#include "upload_server.h"
+#include "wifi_manager.h"
 
 /* SD card state machine. Everything runs inside an LVGL timer (i.e. on the
  * LVGL task, same task that performs the LCD flush). This is deliberate:
@@ -15,6 +17,9 @@
 static lv_obj_t *s_scr;
 static lv_obj_t *status_label;
 static lv_obj_t *info_label;
+static lv_obj_t *s_server_label;
+static lv_obj_t *s_upload_btn;
+static lv_obj_t *s_upload_btn_label;
 
 /* Callback to open the file browser (set by main.c, LVGL thread) */
 static void (*s_browse_cb)(void) = NULL;
@@ -29,6 +34,76 @@ static void browse_click_cb(lv_event_t *e)
     (void)e;
     if (s_browse_cb != NULL) {
         s_browse_cb();
+    }
+}
+
+/* Toggle the HTTP upload/download server. Requires WiFi + mounted card;
+ * reports the failure reason in the server status label. */
+static void upload_click_cb(lv_event_t *e)
+{
+    (void)e;
+
+    if (upload_server_is_running()) {
+        upload_server_stop();
+        lv_label_set_text(s_upload_btn_label, "Start Upload");
+        lv_label_set_text(s_server_label, "Upload server: off");
+        return;
+    }
+
+    if (!sd_card_is_mounted()) {
+        lv_label_set_text(s_server_label, "No SD card");
+        return;
+    }
+    if (!wifi_manager_is_connected()) {
+        lv_label_set_text(s_server_label, "WiFi not connected");
+        return;
+    }
+    if (upload_server_start() == ESP_OK) {
+        lv_label_set_text(s_upload_btn_label, "Stop Upload");
+    } else {
+        lv_label_set_text(s_server_label, "Server start failed");
+    }
+}
+
+/* Refresh the upload-server status line (IP + port, upload progress).
+ * Cheap: reads the driver's in-memory struct, no SPI traffic. */
+static void refresh_server_label(void)
+{
+    upload_server_status_t st;
+    upload_server_get_status(&st);
+
+    if (!st.running) {
+        lv_obj_set_style_text_color(s_server_label, lv_color_hex(0x8A94A0), 0);
+        lv_label_set_text(s_server_label, "Upload server: off");
+        return;
+    }
+
+    wifi_info_t wifi;
+    wifi_manager_get_info(&wifi);
+    const char *ip = (wifi.state == WIFI_STATE_CONNECTED) ? wifi.ip : "?.?.?.?";
+
+    if (st.phase == UPLOAD_SERVER_UPLOADING) {
+        lv_obj_set_style_text_color(s_server_label, lv_color_hex(0x66BB6A), 0);
+        if (st.total > 0) {
+            lv_label_set_text_fmt(s_server_label, "UP %s %lu/%lu KB",
+                                  st.filename,
+                                  (unsigned long)(st.written / 1024),
+                                  (unsigned long)(st.total / 1024));
+        } else {
+            lv_label_set_text_fmt(s_server_label, "UP %s %lu KB",
+                                  st.filename,
+                                  (unsigned long)(st.written / 1024));
+        }
+    } else if (st.phase == UPLOAD_SERVER_DOWNLOADING) {
+        lv_obj_set_style_text_color(s_server_label, lv_color_hex(0x66BB6A), 0);
+        lv_label_set_text_fmt(s_server_label, "DL %s %lu/%lu KB",
+                              st.filename,
+                              (unsigned long)(st.written / 1024),
+                              (unsigned long)(st.total / 1024));
+    } else {
+        lv_obj_set_style_text_color(s_server_label, lv_color_hex(0x66BB6A), 0);
+        lv_label_set_text_fmt(s_server_label, "http://%s:%u/",
+                              ip, (unsigned)st.port);
     }
 }
 
@@ -75,6 +150,19 @@ static void sd_poll_timer_cb(lv_timer_t *timer)
         lv_label_set_text(status_label, "Not Connected");
         lv_label_set_text(info_label, "Insert a microSD card");
     }
+
+    /* Upload server status (in-memory, no SPI traffic) */
+    refresh_server_label();
+}
+
+/* Fast LVGL timer: executes pending SD file I/O for the upload/download
+ * server. Deliberately NOT gated on page visibility — an in-flight upload
+ * keeps progressing even if the user switches pages. Runs on the LVGL
+ * task, which is the only task allowed to touch the shared SPI bus. */
+static void upload_poll_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    upload_server_poll();
 }
 
 lv_obj_t *ui_sd_create(void)
@@ -92,17 +180,24 @@ lv_obj_t *ui_sd_create(void)
     status_label = lv_label_create(s_scr);
     lv_label_set_text(status_label, "Checking...");
     lv_obj_set_style_text_color(status_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(status_label, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_align(status_label, LV_ALIGN_CENTER, 0, -28);
 
     info_label = lv_label_create(s_scr);
     lv_label_set_text(info_label, "");
     lv_obj_set_style_text_color(info_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(info_label, LV_ALIGN_CENTER, 0, 20);
+    lv_obj_align(info_label, LV_ALIGN_CENTER, 0, 2);
+
+    /* Upload server status line (IP/port or transfer progress) */
+    s_server_label = lv_label_create(s_scr);
+    lv_label_set_text(s_server_label, "Upload server: off");
+    lv_obj_set_style_text_color(s_server_label, lv_color_hex(0x8A94A0), 0);
+    lv_obj_set_style_text_font(s_server_label, &lv_font_montserrat_12, 0);
+    lv_obj_align(s_server_label, LV_ALIGN_CENTER, 0, 32);
 
     /* Open the file browser (shows "No SD card" inside if none mounted) */
     lv_obj_t *browse_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(browse_btn, 120, 36);
-    lv_obj_align(browse_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_size(browse_btn, 104, 36);
+    lv_obj_align(browse_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
     lv_obj_set_style_bg_color(browse_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(browse_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *browse_label = lv_label_create(browse_btn);
@@ -110,8 +205,23 @@ lv_obj_t *ui_sd_create(void)
     lv_obj_center(browse_label);
     lv_obj_add_event_cb(browse_btn, browse_click_cb, LV_EVENT_CLICKED, NULL);
 
+    /* Toggle the HTTP upload/download server */
+    s_upload_btn = lv_btn_create(s_scr);
+    lv_obj_set_size(s_upload_btn, 104, 36);
+    lv_obj_align(s_upload_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+    lv_obj_set_style_bg_color(s_upload_btn, lv_color_hex(0x2A323A), 0);
+    lv_obj_set_style_text_color(s_upload_btn, lv_color_hex(0xFFFFFF), 0);
+    s_upload_btn_label = lv_label_create(s_upload_btn);
+    lv_label_set_text(s_upload_btn_label, "Start Upload");
+    lv_obj_center(s_upload_btn_label);
+    lv_obj_add_event_cb(s_upload_btn, upload_click_cb, LV_EVENT_CLICKED, NULL);
+
     /* Poll/probe + refresh once per second (LVGL task) */
     lv_timer_create(sd_poll_timer_cb, SD_POLL_PERIOD_MS, NULL);
+
+    /* Fast timer that executes the upload server's SD file I/O on the LVGL
+     * task (see upload_server.h). Runs regardless of page visibility. */
+    lv_timer_create(upload_poll_timer_cb, 10, NULL);
 
     return s_scr;
 }
