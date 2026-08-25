@@ -6,7 +6,9 @@ CONFIG_LV_MEM_CUSTOM=y
 CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_USE_LOG=y
-CONFIG_LV_LOG_LEVEL_INFO=y
+# INFO-level LVGL trace floods the UART (thousands of lines/min at
+# 115200 baud) and slows the LVGL task; WARN keeps real issues visible.
+CONFIG_LV_LOG_LEVEL_WARN=y
 CONFIG_LV_LOG_PRINTF=y
 # CONFIG_LV_TICK_CUSTOM is not set
 

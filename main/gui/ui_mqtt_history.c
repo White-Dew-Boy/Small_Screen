@@ -6,6 +6,7 @@
 #include <string.h>
 
 /* Widgets */
+static lv_obj_t *s_scr;
 static lv_obj_t *s_count_label;
 static lv_obj_t *s_list;
 static lv_obj_t *s_back_btn;
@@ -45,10 +46,17 @@ static void build_history_list(void)
     }
 }
 
-/* LVGL timer: refresh publish counter and command list. */
+/* LVGL timer: refresh publish counter and command list. Only runs while
+ * the page is on screen — otherwise a hidden page rebuilds its list on
+ * every MQTT publish (~6 s), adding pointless widget churn to the LVGL
+ * task (see the visibility gate pattern in ui_sd.c). */
 static void history_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+
+    if (s_scr == NULL || lv_disp_get_scr_act(NULL) != s_scr) {
+        return; /* page not visible */
+    }
 
     char buf[48];
     snprintf(buf, sizeof(buf), "Published: %lu msg(s)",
@@ -62,6 +70,7 @@ static void history_timer_cb(lv_timer_t *timer)
 lv_obj_t *ui_mqtt_history_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
+    s_scr = scr;
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);

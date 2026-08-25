@@ -521,6 +521,10 @@ void app_main(void)
              (unsigned long)esp_get_free_internal_heap_size() / 1024,
              (unsigned long)esp_get_free_heap_size() / 1024);
 
-    xTaskCreatePinnedToCore(lvgl_task, "lvgl_task", 7168, NULL, 5, NULL, 0);
+    /* 16 KB stack: the LVGL task also executes the upload server's SD
+     * file I/O (directory listing via opendir/readdir/stat/qsort inside
+     * the 10 ms upload timer) on top of LVGL's own render/layout stack
+     * usage. 8 KB overflowed when the browser hit the upload page. */
+    xTaskCreatePinnedToCore(lvgl_task, "lvgl_task", 16384, NULL, 5, NULL, 0);
     xTaskCreate(key_task, "key_task", 2048, NULL, 6, NULL);
 }
