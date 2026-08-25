@@ -81,6 +81,24 @@ const char *mqtt_manager_get_device_id(void);
 const char *mqtt_manager_get_telemetry_topic(void);
 
 /**
+ * @brief Get the retained status topic, e.g. "devices/esp32s3_1a2b3c/status".
+ * @return Pointer to the static topic string.
+ */
+const char *mqtt_manager_get_status_topic(void);
+
+/**
+ * @brief Get the command (subscribed) topic, e.g. "devices/esp32s3_1a2b3c/cmd".
+ * @return Pointer to the static topic string.
+ */
+const char *mqtt_manager_get_cmd_topic(void);
+
+/**
+ * @brief Get the command-response topic, e.g. "devices/esp32s3_1a2b3c/cmd_resp".
+ * @return Pointer to the static topic string.
+ */
+const char *mqtt_manager_get_cmd_resp_topic(void);
+
+/**
  * @brief Get the number of telemetry messages actually published.
  * @return Publish counter.
  */

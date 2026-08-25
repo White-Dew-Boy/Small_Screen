@@ -63,3 +63,26 @@ menu "Sensor Configuration"
             flash/RAM and avoid probing the I2C bus.
 
 endmenu
+
+menu "Time Configuration"
+
+    config TIME_TZ
+        string "Time zone (POSIX TZ string)"
+        default "CST-8"
+        help
+            POSIX timezone string used for local time display, e.g.:
+              CST-8            China (UTC+8, no DST)
+              UTC0             UTC / GMT
+              EST5EDT,M3.2.0,M11.1.0   US Eastern (with DST)
+            The Home page clock and every localtime() call use this zone.
+            Requires SNTP time sync (WiFi connected).
+
+    config TIME_NTP_SERVER
+        string "NTP server"
+        default "pool.ntp.org"
+        help
+            NTP server used to sync the wall-clock time after WiFi
+            connects. On China networks ntp.aliyun.com usually works
+            well too.
+
+endmenu

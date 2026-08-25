@@ -15,6 +15,9 @@ CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER=y
 
+# Home page clock: allow a second NTP server (pool.ntp.org + ntp.aliyun.com)
+CONFIG_LWIP_SNTP_MAX_SERVERS=2
+
 # WiFi credentials are configured at runtime from the LCD UI (stored in NVS),
 # not compiled in. Only the retry count is a build-time option here:
 # CONFIG_WIFI_MAX_RETRY=10

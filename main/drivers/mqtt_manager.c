@@ -346,6 +346,21 @@ const char *mqtt_manager_get_telemetry_topic(void)
     return s_telemetry_topic;
 }
 
+const char *mqtt_manager_get_status_topic(void)
+{
+    return s_status_topic;
+}
+
+const char *mqtt_manager_get_cmd_topic(void)
+{
+    return s_cmd_topic;
+}
+
+const char *mqtt_manager_get_cmd_resp_topic(void)
+{
+    return s_cmd_resp_topic;
+}
+
 uint32_t mqtt_manager_get_publish_count(void)
 {
     return s_publish_count;

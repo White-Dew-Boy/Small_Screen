@@ -15,6 +15,7 @@
 #include "drivers/wifi_manager.h"
 #include "drivers/mqtt_manager.h"
 #include "drivers/rgb_led.h"
+#include "drivers/time_manager.h"
 #if CONFIG_ENABLE_MPU6050
 #include "drivers/mpu6050.h"
 #endif
@@ -26,6 +27,8 @@
 #include "ui_mqtt_interval.h"
 #include "ui_mqtt_history.h"
 #include "ui_mqtt_config.h"
+#include "ui_mqtt_pub.h"
+#include "ui_mqtt_sub.h"
 #include "ui_led.h"
 #include "ui_led_preset.h"
 #include "ui_led_custom.h"
@@ -45,6 +48,8 @@ static lv_obj_t *scr_mqtt;
 static lv_obj_t *scr_mqtt_interval;
 static lv_obj_t *scr_mqtt_history;
 static lv_obj_t *scr_mqtt_config;
+static lv_obj_t *scr_mqtt_pub;
+static lv_obj_t *scr_mqtt_sub;
 static lv_obj_t *scr_led;
 static lv_obj_t *scr_led_preset;
 static lv_obj_t *scr_led_custom;
@@ -67,6 +72,8 @@ typedef enum {
     SWITCH_MQTT_INTERVAL,
     SWITCH_MQTT_HISTORY,
     SWITCH_MQTT_CONFIG,
+    SWITCH_MQTT_PUB,
+    SWITCH_MQTT_SUB,
     SWITCH_LED,
     SWITCH_LED_PRESET,
     SWITCH_LED_CUSTOM,
@@ -118,6 +125,16 @@ static void mqtt_history_open(void)
 static void mqtt_config_open(void)
 {
     s_switch_req = SWITCH_MQTT_CONFIG;
+}
+
+static void mqtt_pub_open(void)
+{
+    s_switch_req = SWITCH_MQTT_PUB;
+}
+
+static void mqtt_sub_open(void)
+{
+    s_switch_req = SWITCH_MQTT_SUB;
 }
 
 /* Called from the MQTT sub-pages back/save (LVGL thread) */
@@ -238,6 +255,10 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_mqtt_history);
             } else if (req == SWITCH_MQTT_CONFIG) {
                 lv_scr_load(scr_mqtt_config);
+            } else if (req == SWITCH_MQTT_PUB) {
+                lv_scr_load(scr_mqtt_pub);
+            } else if (req == SWITCH_MQTT_SUB) {
+                lv_scr_load(scr_mqtt_sub);
             } else if (req == SWITCH_LED) {
                 lv_scr_load(scr_led);
             } else if (req == SWITCH_LED_PRESET) {
@@ -351,6 +372,15 @@ void app_main(void)
         ESP_LOGI(TAG, "MQTT manager started");
     }
 
+    // SNTP time sync (starts on first WiFi connection, TZ from Kconfig)
+    // Non-fatal: the clock on the Home page stays "Syncing..." offline.
+    esp_err_t time_ret = time_manager_init();
+    if (time_ret != ESP_OK) {
+        ESP_LOGE(TAG, "Time manager init failed: %s", esp_err_to_name(time_ret));
+    } else {
+        ESP_LOGI(TAG, "Time manager started");
+    }
+
     // Initialize I2C bus
     ESP_ERROR_CHECK(i2c_bus_init());
 
@@ -411,6 +441,8 @@ void app_main(void)
     scr_mqtt_interval = ui_mqtt_interval_create();
     scr_mqtt_history = ui_mqtt_history_create();
     scr_mqtt_config = ui_mqtt_config_create();
+    scr_mqtt_pub = ui_mqtt_pub_create();
+    scr_mqtt_sub = ui_mqtt_sub_create();
     scr_led = ui_led_create();
     scr_led_preset = ui_led_preset_create();
     scr_led_custom = ui_led_custom_create();
@@ -432,14 +464,18 @@ void app_main(void)
     ui_saved_wifi_set_back_cb(wifi_sub_close);
     ui_nearby_wifi_set_back_cb(wifi_sub_close);
 
-    // MQTT status page buttons -> interval / history / config pages
+    // MQTT status page buttons -> interval / history / config / pub / sub pages
     ui_mqtt_set_interval_cb(mqtt_interval_open);
     ui_mqtt_set_history_cb(mqtt_history_open);
     ui_mqtt_set_config_cb(mqtt_config_open);
+    ui_mqtt_set_pub_cb(mqtt_pub_open);
+    ui_mqtt_set_sub_cb(mqtt_sub_open);
     // MQTT sub-pages back / save -> MQTT status page
     ui_mqtt_interval_set_back_cb(mqtt_sub_close);
     ui_mqtt_history_set_back_cb(mqtt_sub_close);
     ui_mqtt_config_set_back_cb(mqtt_sub_close);
+    ui_mqtt_pub_set_back_cb(mqtt_sub_close);
+    ui_mqtt_sub_set_back_cb(mqtt_sub_close);
 
     // LED page buttons -> preset / custom color pages
     ui_led_set_preset_cb(led_preset_open);

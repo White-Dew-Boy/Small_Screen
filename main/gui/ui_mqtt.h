@@ -28,3 +28,17 @@ void ui_mqtt_set_history_cb(void (*cb)(void));
  *        LVGL thread.
  */
 void ui_mqtt_set_config_cb(void (*cb)(void));
+
+/**
+ * @brief Register a callback invoked when the "Publish" button is pressed.
+ *        The callback must switch to the publish-topics page from the
+ *        LVGL thread.
+ */
+void ui_mqtt_set_pub_cb(void (*cb)(void));
+
+/**
+ * @brief Register a callback invoked when the "Subscribe" button is pressed.
+ *        The callback must switch to the subscribe-topic page from the
+ *        LVGL thread.
+ */
+void ui_mqtt_set_sub_cb(void (*cb)(void));

@@ -1001,6 +1001,15 @@ CONFIG_MQTT_TELEMETRY_INTERVAL=5
 # end of Sensor Configuration
 
 #
+# Time Configuration
+#
+# default:
+CONFIG_TIME_TZ="CST-8"
+# default:
+CONFIG_TIME_NTP_SERVER="pool.ntp.org"
+# end of Time Configuration
+
+#
 # Compiler options
 #
 # default:
@@ -2876,8 +2885,7 @@ CONFIG_LWIP_MAX_RAW_PCBS=16
 #
 # SNTP
 #
-# default:
-CONFIG_LWIP_SNTP_MAX_SERVERS=1
+CONFIG_LWIP_SNTP_MAX_SERVERS=2
 # default:
 # CONFIG_LWIP_DHCP_GET_NTP_SRV is not set
 # default:

@@ -1,5 +1,7 @@
 #include "ui_home.h"
 #include "lvgl.h"
+#include "time_manager.h"
+#include <time.h>
 
 /* Menu entries: name and accent color */
 static const struct {
@@ -20,6 +22,10 @@ static void (*s_deepsleep_cb)(void) = NULL;
 
 /* Bottom hint label, reused to show the deep-sleep press count */
 static lv_obj_t *s_hint_label;
+
+/* Home screen + wall-clock label (updated by a 1 s LVGL timer) */
+static lv_obj_t *s_home_scr = NULL;
+static lv_obj_t *s_clock_label = NULL;
 
 /* Deep sleep needs 3 presses within a 3 s window (accident protection).
  * A one-shot LVGL timer implements the window: it is (re)started on each
@@ -89,6 +95,31 @@ static void deepsleep_click_cb(lv_event_t *e)
     }
 }
 
+/* Wall-clock label: 1 s LVGL timer, only refreshes while Home is on
+ * screen. Shows the SNTP-synced local time (TZ from Kconfig); a gray
+ * placeholder until the first sync (needs WiFi + NTP reachable). */
+static void clock_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+
+    if (s_home_scr == NULL || lv_disp_get_scr_act(NULL) != s_home_scr) {
+        return; /* Home not visible */
+    }
+
+    if (time_manager_is_synced()) {
+        time_t now = time(NULL);
+        struct tm t;
+        localtime_r(&now, &t);
+        lv_label_set_text_fmt(s_clock_label, "%04d-%02d-%02d %02d:%02d",
+                              t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
+                              t.tm_hour, t.tm_min);
+        lv_obj_set_style_text_color(s_clock_label, lv_color_hex(0xFFFFFF), 0);
+    } else {
+        lv_label_set_text(s_clock_label, "Syncing time...");
+        lv_obj_set_style_text_color(s_clock_label, lv_color_hex(0x9E9E9E), 0);
+    }
+}
+
 lv_obj_t *ui_home_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -98,6 +129,14 @@ lv_obj_t *ui_home_create(void)
     lv_label_set_text(title, "Home");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
+
+    /* Wall-clock time (SNTP-synced, shown once available) */
+    s_home_scr = scr;
+    s_clock_label = lv_label_create(scr);
+    lv_label_set_text(s_clock_label, "Syncing time...");
+    lv_obj_set_style_text_color(s_clock_label, lv_color_hex(0x9E9E9E), 0);
+    lv_obj_align(s_clock_label, LV_ALIGN_TOP_MID, 0, 34);
+    lv_timer_create(clock_timer_cb, 1000, NULL);
 
     /* 2x3 grid of page entries (same height as the Deep Sleep button) */
     for (int i = 0; i < 6; i++) {

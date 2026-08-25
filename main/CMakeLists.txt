@@ -11,6 +11,8 @@ idf_component_register(
         "gui/ui_mqtt_interval.c"
         "gui/ui_mqtt_history.c"
         "gui/ui_mqtt_config.c"
+        "gui/ui_mqtt_pub.c"
+        "gui/ui_mqtt_sub.c"
         "gui/ui_led.c"
         "gui/ui_led_preset.c"
         "gui/ui_led_custom.c"
@@ -27,6 +29,7 @@ idf_component_register(
         "drivers/shtc3.c"
         "drivers/wifi_manager.c"
         "drivers/mqtt_manager.c"
+        "drivers/time_manager.c"
         $<$<BOOL:${CONFIG_ENABLE_MPU6050}>:"drivers/mpu6050.c">
     
     INCLUDE_DIRS 
@@ -47,6 +50,7 @@ idf_component_register(
         esp_event
         nvs_flash
         mqtt
+        lwip
         esp_partition
         bootloader_support
         esp_psram
