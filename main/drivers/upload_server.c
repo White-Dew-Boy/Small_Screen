@@ -1,5 +1,6 @@
 #include "upload_server.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -92,13 +93,24 @@ static void append_str(char *dst, size_t cap, const char *src)
     dst[dl + n] = '\0';
 }
 
+/* Make sure the flat upload directory exists (idempotent). Runs on the
+ * LVGL task (SD I/O). */
+static void ensure_upload_dir(void)
+{
+    struct stat st;
+    if (stat(CONFIG_UPLOAD_DIR, &st) == 0 && S_ISDIR(st.st_mode)) {
+        return;
+    }
+    if (mkdir(CONFIG_UPLOAD_DIR, 0777) != 0 && errno != EEXIST) {
+        ESP_LOGW(TAG, "mkdir(%s) failed: %s (%d)", CONFIG_UPLOAD_DIR,
+                 strerror(errno), errno);
+    }
+}
+
 static void do_open_write(void)
 {
     /* Uploads are flat: make sure the target directory exists. */
-    struct stat st;
-    if (stat(CONFIG_UPLOAD_DIR, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        mkdir(CONFIG_UPLOAD_DIR, 0777);
-    }
+    ensure_upload_dir();
 
     /* Split "base.ext" at the last dot so numbering is file_1.ext */
     char base[UPLOAD_NAME_MAX + 1], ext[UPLOAD_NAME_MAX + 1];
@@ -132,6 +144,10 @@ static void do_open_write(void)
             continue; /* name taken, try the next number */
         }
         s_io.fp = fopen(cand, "wb");
+        if (s_io.fp == NULL) {
+            ESP_LOGW(TAG, "fopen(%s) failed: %s (%d)", cand,
+                     strerror(errno), errno);
+        }
         s_io.result = (s_io.fp != NULL) ? ESP_OK : ESP_FAIL;
         return;
     }
@@ -265,10 +281,14 @@ static void html_escape(const char *src, char *dst, size_t cap)
 
 static void do_list(void)
 {
-    sd_file_entry_t entries[UPLOAD_LIST_MAX_ENTRIES];
+    /* Runs on the LVGL task; keep the entry array static, not on the
+     * stack (64 * ~72 B would eat 4.6 KB of the LVGL task stack). */
+    static sd_file_entry_t entries[UPLOAD_LIST_MAX_ENTRIES];
     size_t count = 0;
     size_t cap = sizeof(s_io.list);
     size_t o = 0;
+
+    ensure_upload_dir(); /* so the first page load lists cleanly */
 
     if (sd_file_list(CONFIG_UPLOAD_DIR, entries, UPLOAD_LIST_MAX_ENTRIES, &count) != ESP_OK) {
         s_io.list[0] = '\0';
@@ -379,10 +399,12 @@ static const char HTML_FOOT[] =
 static esp_err_t index_handler(httpd_req_t *req)
 {
     if (!sd_card_is_mounted()) {
+        ESP_LOGW(TAG, "index rejected: no SD card");
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no SD card");
         return ESP_OK;
     }
     if (s_phase != UPLOAD_SERVER_IDLE) {
+        ESP_LOGW(TAG, "index rejected: busy (phase=%d)", (int)s_phase);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "server busy");
         return ESP_OK;
     }
@@ -391,6 +413,7 @@ static esp_err_t index_handler(httpd_req_t *req)
     esp_err_t ret = send_cmd(CMD_LIST, pdMS_TO_TICKS(UPLOAD_ACK_TIMEOUT_MS));
     s_phase = UPLOAD_SERVER_IDLE;
     if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "index: list command failed: %s", esp_err_to_name(ret));
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "list failed");
         return ESP_OK;
     }
@@ -406,10 +429,12 @@ static esp_err_t index_handler(httpd_req_t *req)
 static esp_err_t upload_handler(httpd_req_t *req)
 {
     if (!sd_card_is_mounted()) {
+        ESP_LOGW(TAG, "upload rejected: no SD card");
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no SD card");
         return ESP_OK;
     }
     if (s_phase != UPLOAD_SERVER_IDLE) {
+        ESP_LOGW(TAG, "upload rejected: busy (phase=%d)", (int)s_phase);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "server busy");
         return ESP_OK;
     }
@@ -420,10 +445,12 @@ static esp_err_t upload_handler(httpd_req_t *req)
         httpd_query_key_value(qs, "name", name, sizeof(name));
     }
     if (!upload_name_valid(name)) {
+        ESP_LOGW(TAG, "upload rejected: invalid name \"%s\"", name);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid file name");
         return ESP_OK;
     }
     if (req->content_len > (int)UPLOAD_MAX_SIZE) {
+        ESP_LOGW(TAG, "upload rejected: %d bytes too large", req->content_len);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "file too large");
         return ESP_OK;
     }
@@ -437,6 +464,8 @@ static esp_err_t upload_handler(httpd_req_t *req)
     esp_err_t ret = send_cmd(CMD_OPEN_WRITE, pdMS_TO_TICKS(UPLOAD_ACK_TIMEOUT_MS));
     if (ret != ESP_OK) {
         s_phase = UPLOAD_SERVER_IDLE;
+        ESP_LOGW(TAG, "upload of %s failed at open (cmd ret=%s)", name,
+                 esp_err_to_name(ret));
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "open failed");
         return ESP_OK;
     }
@@ -481,10 +510,12 @@ static esp_err_t upload_handler(httpd_req_t *req)
 static esp_err_t download_handler(httpd_req_t *req)
 {
     if (!sd_card_is_mounted()) {
+        ESP_LOGW(TAG, "download rejected: no SD card");
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no SD card");
         return ESP_OK;
     }
     if (s_phase != UPLOAD_SERVER_IDLE) {
+        ESP_LOGW(TAG, "download rejected: busy (phase=%d)", (int)s_phase);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "server busy");
         return ESP_OK;
     }
@@ -495,6 +526,7 @@ static esp_err_t download_handler(httpd_req_t *req)
         httpd_query_key_value(qs, "name", name, sizeof(name));
     }
     if (!upload_name_valid(name)) {
+        ESP_LOGW(TAG, "download rejected: invalid name \"%s\"", name);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid file name");
         return ESP_OK;
     }
@@ -506,6 +538,7 @@ static esp_err_t download_handler(httpd_req_t *req)
 
     if (send_cmd(CMD_OPEN_READ, pdMS_TO_TICKS(UPLOAD_ACK_TIMEOUT_MS)) != ESP_OK) {
         s_phase = UPLOAD_SERVER_IDLE;
+        ESP_LOGW(TAG, "download of %s not found", name);
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
         return ESP_OK;
     }
