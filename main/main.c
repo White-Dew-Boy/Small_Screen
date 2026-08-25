@@ -34,6 +34,7 @@
 #include "ui_led_custom.h"
 #include "ui_home.h"
 #include "ui_sd.h"
+#include "ui_files.h"
 #include "ui_sysinfo.h"
 
 static const char *TAG = "app_main";
@@ -54,6 +55,7 @@ static lv_obj_t *scr_led;
 static lv_obj_t *scr_led_preset;
 static lv_obj_t *scr_led_custom;
 static lv_obj_t *scr_sd;
+static lv_obj_t *scr_sd_files;
 static lv_obj_t *scr_sysinfo;
 static lv_obj_t *scr_sysinfo_cpu;
 static lv_obj_t *scr_sysinfo_stack;
@@ -78,6 +80,7 @@ typedef enum {
     SWITCH_LED_PRESET,
     SWITCH_LED_CUSTOM,
     SWITCH_SD,
+    SWITCH_SD_FILES,
     SWITCH_SYSINFO,
     SWITCH_SYSINFO_CPU,
     SWITCH_SYSINFO_STACK,
@@ -188,6 +191,20 @@ static void sysinfo_sub_close(void)
     s_switch_req = SWITCH_SYSINFO;
 }
 
+/* Called from the SD status page "Browse Files" button (LVGL thread) */
+static void sd_files_open(void)
+{
+    ui_files_refresh(); /* re-read the current directory before showing */
+    s_switch_req = SWITCH_SD_FILES;
+}
+
+/* Called from the file browser Back button (LVGL thread) */
+static void sd_files_close(void)
+{
+    s_cur_page = 4; /* back to SD status page */
+    s_switch_req = SWITCH_SD;
+}
+
 /* Called from the home menu: open the selected page (LVGL thread) */
 static void home_open_page(int page)
 {
@@ -267,6 +284,8 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_led_custom);
             } else if (req == SWITCH_SD) {
                 lv_scr_load(scr_sd);
+            } else if (req == SWITCH_SD_FILES) {
+                lv_scr_load(scr_sd_files);
             } else if (req == SWITCH_SYSINFO) {
                 lv_scr_load(scr_sysinfo);
             } else if (req == SWITCH_SYSINFO_CPU) {
@@ -447,6 +466,7 @@ void app_main(void)
     scr_led_preset = ui_led_preset_create();
     scr_led_custom = ui_led_custom_create();
     scr_sd = ui_sd_create();
+    scr_sd_files = ui_files_create();
     scr_sysinfo = ui_sysinfo_create();
     scr_sysinfo_cpu = ui_sysinfo_cpu_create();
     scr_sysinfo_stack = ui_sysinfo_stack_create();
@@ -492,6 +512,10 @@ void app_main(void)
     ui_sysinfo_cpu_set_back_cb(sysinfo_sub_close);
     ui_sysinfo_stack_set_back_cb(sysinfo_sub_close);
     ui_sysinfo_about_set_back_cb(sysinfo_sub_close);
+
+    // SD status page "Browse Files" -> file browser; back -> SD status page
+    ui_sd_set_browse_cb(sd_files_open);
+    ui_files_set_back_cb(sd_files_close);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,

@@ -16,6 +16,22 @@ static lv_obj_t *s_scr;
 static lv_obj_t *status_label;
 static lv_obj_t *info_label;
 
+/* Callback to open the file browser (set by main.c, LVGL thread) */
+static void (*s_browse_cb)(void) = NULL;
+
+void ui_sd_set_browse_cb(void (*cb)(void))
+{
+    s_browse_cb = cb;
+}
+
+static void browse_click_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_browse_cb != NULL) {
+        s_browse_cb();
+    }
+}
+
 /* LVGL timer callback: probe/mount/unmount the card and refresh the labels.
  * Only runs while the SD page is on screen. */
 static void sd_poll_timer_cb(lv_timer_t *timer)
@@ -82,6 +98,17 @@ lv_obj_t *ui_sd_create(void)
     lv_label_set_text(info_label, "");
     lv_obj_set_style_text_color(info_label, lv_color_hex(0x9E9E9E), 0);
     lv_obj_align(info_label, LV_ALIGN_CENTER, 0, 20);
+
+    /* Open the file browser (shows "No SD card" inside if none mounted) */
+    lv_obj_t *browse_btn = lv_btn_create(s_scr);
+    lv_obj_set_size(browse_btn, 120, 36);
+    lv_obj_align(browse_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_style_bg_color(browse_btn, lv_color_hex(0x2A323A), 0);
+    lv_obj_set_style_text_color(browse_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *browse_label = lv_label_create(browse_btn);
+    lv_label_set_text(browse_label, "Browse Files");
+    lv_obj_center(browse_label);
+    lv_obj_add_event_cb(browse_btn, browse_click_cb, LV_EVENT_CLICKED, NULL);
 
     /* Poll/probe + refresh once per second (LVGL task) */
     lv_timer_create(sd_poll_timer_cb, SD_POLL_PERIOD_MS, NULL);
