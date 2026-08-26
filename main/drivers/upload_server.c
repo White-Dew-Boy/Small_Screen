@@ -395,9 +395,18 @@ static const char HTML_FOOT[] =
     "x.send(f);}\n"
     "</script></body></html>\n";
 
+/* Log every request that reaches a handler (debugging: distinguishes
+ * "request never arrived" from "handler rejected it"). */
+static void log_request(httpd_req_t *req, const char *handler)
+{
+    ESP_LOGI(TAG, "HTTP %s -> %s (uri=%s)", handler,
+             (req->method == HTTP_GET) ? "GET" : "POST", req->uri);
+}
+
 /* GET / — upload form + file list with download links */
 static esp_err_t index_handler(httpd_req_t *req)
 {
+    log_request(req, "index");
     if (!sd_card_is_mounted()) {
         ESP_LOGW(TAG, "index rejected: no SD card");
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no SD card");
@@ -428,6 +437,7 @@ static esp_err_t index_handler(httpd_req_t *req)
 /* POST /upload?name=<file> — receive a file into the SD card */
 static esp_err_t upload_handler(httpd_req_t *req)
 {
+    log_request(req, "upload");
     if (!sd_card_is_mounted()) {
         ESP_LOGW(TAG, "upload rejected: no SD card");
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no SD card");
@@ -509,6 +519,7 @@ static esp_err_t upload_handler(httpd_req_t *req)
 /* GET /download?name=<file> — serve a file from the SD card */
 static esp_err_t download_handler(httpd_req_t *req)
 {
+    log_request(req, "download");
     if (!sd_card_is_mounted()) {
         ESP_LOGW(TAG, "download rejected: no SD card");
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no SD card");
