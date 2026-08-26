@@ -427,10 +427,14 @@ static esp_err_t index_handler(httpd_req_t *req)
         return ESP_OK;
     }
 
+    /* Each httpd_resp_send*() call is its OWN complete HTTP response
+     * (it writes Content-Length for just that call), so a multi-part body
+     * must be sent with httpd_resp_send_chunk (chunked transfer). */
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_sendstr(req, HTML_HEAD);
-    httpd_resp_sendstr(req, s_io.list);
-    httpd_resp_sendstr(req, HTML_FOOT);
+    httpd_resp_send_chunk(req, HTML_HEAD, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(req, s_io.list, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(req, HTML_FOOT, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send_chunk(req, NULL, 0); /* terminate the chunked body */
     return ESP_OK;
 }
 
@@ -500,9 +504,11 @@ static esp_err_t upload_handler(httpd_req_t *req)
 
     if (clean_eof && !s_stop_req) {
         send_cmd(CMD_FINISH, pdMS_TO_TICKS(UPLOAD_ACK_TIMEOUT_MS));
+        /* One send per response: build the full message first. */
+        char resp[UPLOAD_NAME_MAX + 32];
+        snprintf(resp, sizeof(resp), "OK: saved as %s", s_io.final_name);
         httpd_resp_set_type(req, "text/plain");
-        httpd_resp_sendstr(req, "OK: saved as ");
-        httpd_resp_sendstr(req, s_io.final_name);
+        httpd_resp_sendstr(req, resp);
         ESP_LOGI(TAG, "uploaded %s (%lu bytes)", s_io.final_name,
                  (unsigned long)s_written);
     } else {
@@ -557,11 +563,9 @@ static esp_err_t download_handler(httpd_req_t *req)
 
     httpd_resp_set_type(req, "application/octet-stream");
     httpd_resp_set_hdr(req, "Content-Disposition", "attachment");
-    if (s_total > 0) {
-        char len_hdr[24];
-        snprintf(len_hdr, sizeof(len_hdr), "%lu", (unsigned long)s_total);
-        httpd_resp_set_hdr(req, "Content-Length", len_hdr);
-    }
+    /* No Content-Length here: the body is sent with
+     * httpd_resp_send_chunk (Transfer-Encoding: chunked); mixing the two
+     * framing headers is invalid HTTP and breaks strict clients. */
 
     esp_err_t ret = ESP_OK;
     while (!s_stop_req) {
