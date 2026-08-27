@@ -7,8 +7,8 @@
 /*============================================================================
  * Pin Configuration (shared I2C bus, from materials/ESP32模块GPIO连接关系.md)
  *============================================================================*/
-#define I2C_BUS_SCL   GPIO_NUM_17
-#define I2C_BUS_SDA   GPIO_NUM_18
+#define I2C_BUS_SCL   GPIO_NUM_13
+#define I2C_BUS_SDA   GPIO_NUM_12
 #define I2C_BUS_PORT  I2C_NUM_0
 
 /*============================================================================
