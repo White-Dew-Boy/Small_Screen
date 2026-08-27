@@ -33,8 +33,6 @@ idf_component_register(
         "drivers/wifi_manager.c"
         "drivers/mqtt_manager.c"
         "drivers/time_manager.c"
-        $<$<BOOL:${CONFIG_ENABLE_MPU6050}>:"drivers/mpu6050.c">
-    
     INCLUDE_DIRS 
         "."
         "gui"

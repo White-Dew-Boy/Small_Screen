@@ -16,9 +16,6 @@
 #include "drivers/mqtt_manager.h"
 #include "drivers/rgb_led.h"
 #include "drivers/time_manager.h"
-#if CONFIG_ENABLE_MPU6050
-#include "drivers/mpu6050.h"
-#endif
 #include "ui_shtc3.h"
 #include "ui_wifi.h"
 #include "ui_saved_wifi.h"

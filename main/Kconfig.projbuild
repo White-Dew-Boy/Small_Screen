@@ -52,18 +52,6 @@ menu "MQTT Configuration"
 
 endmenu
 
-menu "Sensor Configuration"
-
-    config ENABLE_MPU6050
-        bool "Enable MPU6050 IMU sensor (disabled by default)"
-        default n
-        help
-            Compile and initialize the MPU6050 driver. When disabled,
-            the driver source is excluded from the build to save
-            flash/RAM and avoid probing the I2C bus.
-
-endmenu
-
 menu "Time Configuration"
 
     config TIME_TZ

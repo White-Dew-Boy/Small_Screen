@@ -994,13 +994,6 @@ CONFIG_MQTT_TELEMETRY_INTERVAL=5
 # end of MQTT Configuration
 
 #
-# Sensor Configuration
-#
-# default:
-# CONFIG_ENABLE_MPU6050 is not set
-# end of Sensor Configuration
-
-#
 # Time Configuration
 #
 # default:
