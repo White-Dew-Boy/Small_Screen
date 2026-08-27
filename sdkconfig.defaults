@@ -23,3 +23,7 @@ CONFIG_LWIP_SNTP_MAX_SERVERS=2
 # WiFi credentials are configured at runtime from the LCD UI (stored in NVS),
 # not compiled in. Only the retry count is a build-time option here:
 # CONFIG_WIFI_MAX_RETRY=10
+
+# Main log channel goes to USB-Serial-JTAG (TypeC, COM5); UART0 is reserved
+# for the JY901S IMU (GPIO43/44), so no log bytes leak into its RX line.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
