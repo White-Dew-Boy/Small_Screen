@@ -90,3 +90,6 @@ main/photo.h
 figures/
 tools/
 materials/
+
+# VS Code IDE-local configuration (absolute paths, serial ports, toolchains)
+.vscode/
