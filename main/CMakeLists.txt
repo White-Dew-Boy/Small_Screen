@@ -30,6 +30,7 @@ idf_component_register(
         "drivers/sd_file.c"
         "drivers/upload_server.c"
         "drivers/shtc3.c"
+        "drivers/jy901s.c"
         "drivers/wifi_manager.c"
         "drivers/mqtt_manager.c"
         "drivers/time_manager.c"
@@ -41,6 +42,7 @@ idf_component_register(
     REQUIRES 
         esp_lcd 
         esp_driver_ledc 
+        esp_driver_uart
         driver 
         fatfs 
         sdmmc
