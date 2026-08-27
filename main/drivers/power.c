@@ -30,7 +30,7 @@ esp_err_t power_init(void)
     }
     gpio_set_level(POWER_KEY1_GPIO, 1);
 
-    gpio_config_t gpa_cfg = {
+    gpio_config_t power_io_cfg = {
         .pin_bit_mask = BIT64(POWER_IMU_GPIO) | BIT64(POWER_TEMP_GPIO) |
                         BIT64(POWER_AUDIO_GPIO) | BIT64(POWER_LCD_GPIO),
         .mode         = GPIO_MODE_OUTPUT,
@@ -38,9 +38,9 @@ esp_err_t power_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type    = GPIO_INTR_DISABLE,
     };
-    ret = gpio_config(&gpa_cfg);
+    ret = gpio_config(&power_io_cfg);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "GPA GPIO config failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "MODULE POWER GPIO config failed: %s", esp_err_to_name(ret));
         return ret;
     }
 

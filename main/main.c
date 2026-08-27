@@ -369,6 +369,7 @@ void app_main(void)
     ESP_ERROR_CHECK(power_init());
     ESP_ERROR_CHECK(power_on(POWER_ID_TEMP));
     ESP_ERROR_CHECK(power_on(POWER_ID_LCD));
+    ESP_ERROR_CHECK(power_on(POWER_ID_IMU));
 
     // Initialize WiFi (STA mode, connects in background, auto-reconnect)
     // Non-fatal: the device keeps working without network access.
