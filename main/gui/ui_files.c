@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "lvgl.h"
 
@@ -22,6 +23,7 @@ static lv_obj_t *s_scr;
 static lv_obj_t *s_path_label;
 static lv_obj_t *s_list;
 static lv_obj_t *s_info_label;
+static lv_obj_t *s_delete_btn;
 
 /* Callback to leave the page (set by main.c, invoked from the LVGL thread) */
 static void (*s_back_cb)(void) = NULL;
@@ -30,6 +32,7 @@ static void (*s_back_cb)(void) = NULL;
 static char s_cur_path[256] = SD_MOUNT_PATH; /* current directory */
 static sd_file_entry_t s_entries[FILE_MAX_ENTRIES];
 static size_t s_entry_count = 0;
+static int s_sel = -1; /* selected file index in s_entries, -1 = none */
 
 void ui_files_set_back_cb(void (*cb)(void))
 {
@@ -101,14 +104,63 @@ static void item_click_cb(lv_event_t *e)
 
     if (ent->is_dir) {
         sd_file_join(s_cur_path, ent->name, s_cur_path, sizeof(s_cur_path));
-        ui_files_refresh();
+        ui_files_refresh(); /* resets the selection */
         return;
     }
 
-    /* Regular file: show name + size in the info bar */
+    /* Regular file: select it (enables Delete) and show name + size */
+    s_sel = (int)idx;
+    lv_obj_clear_state(s_delete_btn, LV_STATE_DISABLED);
     char size_str[16];
     format_size(ent->size, size_str, sizeof(size_str));
     lv_label_set_text_fmt(s_info_label, "%s  (%s)", ent->name, size_str);
+}
+
+/* Delete the selected file (called on LVGL task — unlink is SD I/O). */
+static void do_delete_selected(void)
+{
+    if (s_sel < 0 || (size_t)s_sel >= s_entry_count) {
+        return;
+    }
+    const char *name = s_entries[s_sel].name;
+
+    char path[256 + SD_FILE_NAME_MAX + 2];
+    snprintf(path, sizeof(path), "%s/%s", s_cur_path, name);
+
+    bool ok = (unlink(path) == 0);
+    ui_files_refresh(); /* rebuild the list (also clears the selection) */
+    lv_label_set_text_fmt(s_info_label, ok ? "Deleted %s" : "Delete failed: %s",
+                          name);
+}
+
+/* Message-box event: button 0 = Delete, 1 = Cancel. */
+static void delete_mbox_cb(lv_event_t *e)
+{
+    lv_obj_t *mbox = lv_event_get_current_target(e);
+    if (lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
+        if (lv_msgbox_get_active_btn(mbox) == 0) {
+            do_delete_selected();
+        }
+        lv_msgbox_close(mbox);
+    }
+}
+
+static void delete_click_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_sel < 0 || (size_t)s_sel >= s_entry_count) {
+        return;
+    }
+
+    static const char *btns[] = { "Delete", "Cancel", "" };
+    lv_obj_t *mbox = lv_msgbox_create(lv_scr_act(),
+                                      "Delete file", s_entries[s_sel].name,
+                                      btns, false);
+    /* Dark styling to match the app */
+    lv_obj_set_style_bg_color(mbox, lv_color_hex(0x1C232B), 0);
+    lv_obj_set_style_text_color(mbox, lv_color_hex(0xE8ECF0), 0);
+    lv_obj_add_event_cb(mbox, delete_mbox_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_center(mbox);
 }
 
 static void back_click_cb(lv_event_t *e)
@@ -123,6 +175,8 @@ void ui_files_refresh(void)
 {
     lv_obj_clean(s_list);
     s_entry_count = 0;
+    s_sel = -1; /* the list is rebuilt; the old selection is invalid */
+    lv_obj_add_state(s_delete_btn, LV_STATE_DISABLED);
 
     if (!sd_card_is_mounted()) {
         lv_label_set_text(s_path_label, SD_MOUNT_PATH);
@@ -192,10 +246,23 @@ lv_obj_t *ui_files_create(void)
     lv_obj_set_style_text_font(s_info_label, &lv_font_montserrat_12, 0);
     lv_obj_align(s_info_label, LV_ALIGN_TOP_MID, 0, 258);
 
-    /* Back button */
+    /* Delete (disabled until a file is selected) + Back buttons */
+    s_delete_btn = lv_btn_create(s_scr);
+    lv_obj_set_size(s_delete_btn, 90, 32);
+    lv_obj_align(s_delete_btn, LV_ALIGN_BOTTOM_LEFT, 10, -8);
+    lv_obj_set_style_bg_color(s_delete_btn, lv_color_hex(0x7A3238), 0);
+    lv_obj_set_style_bg_color(s_delete_btn, lv_color_hex(0x2A323A),
+                              LV_STATE_DISABLED);
+    lv_obj_set_style_text_color(s_delete_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *delete_label = lv_label_create(s_delete_btn);
+    lv_label_set_text(delete_label, "Delete");
+    lv_obj_center(delete_label);
+    lv_obj_add_event_cb(s_delete_btn, delete_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_state(s_delete_btn, LV_STATE_DISABLED);
+
     lv_obj_t *back_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(back_btn, 100, 32);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_size(back_btn, 90, 32);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *back_label = lv_label_create(back_btn);

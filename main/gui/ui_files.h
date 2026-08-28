@@ -6,11 +6,14 @@
  *
  * Shows one directory level at a time in a scrollable list: directories
  * first, then files. Tapping a directory enters it, the ".." entry (or the
- * Back button) goes up / leaves the page. Tapping a file shows its name
- * and size in the info bar.
+ * Back button) goes up / leaves the page. Tapping a file selects it and
+ * shows its name and size in the info bar; the Delete button then removes
+ * it after an on-screen confirmation (files only — directories cannot be
+ * deleted).
  *
- * All SD I/O happens inside this module's refresh path, which runs on the
- * LVGL task (the SD card shares the SPI bus with the LCD — see sd_card.h).
+ * All SD I/O happens inside this module's refresh/delete paths, which run
+ * on the LVGL task (the SD card shares the SPI bus with the LCD — see
+ * sd_card.h).
  * @return The created screen object (not loaded yet — use lv_scr_load()).
  */
 lv_obj_t *ui_files_create(void);
