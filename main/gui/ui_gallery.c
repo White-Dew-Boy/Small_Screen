@@ -22,8 +22,7 @@
 
 /* Widgets */
 static lv_obj_t *s_scr;
-static lv_obj_t *s_img;     /* full-screen lv_img showing the current frame */
-static lv_obj_t *s_overlay; /* file name + index, top-left corner */
+static lv_obj_t *s_img; /* full-screen lv_img showing the current frame */
 
 /* Gallery state */
 static char s_pics[GALLERY_MAX_PICS][SD_FILE_NAME_MAX + 1];
@@ -68,10 +67,6 @@ static esp_err_t load_pic(int idx)
     s_dsc.data_size = PIC_BYTES;
     s_dsc.data = s_buf;
     lv_img_set_src(s_img, &s_dsc);
-
-    /* File name + index, top-left */
-    lv_label_set_text_fmt(s_overlay, "%d/%d  %s", idx + 1, s_pic_count,
-                          s_pics[idx]);
     return ESP_OK;
 }
 
@@ -154,16 +149,6 @@ lv_obj_t *ui_gallery_create(void)
     lv_obj_set_style_pad_all(s_img, 0, 0);
     lv_obj_set_style_radius(s_img, 0, 0);
     lv_obj_clear_flag(s_img, LV_OBJ_FLAG_SCROLLABLE);
-
-    /* File name + index overlay, top-left with a translucent backing so
-     * it stays readable over any picture. */
-    s_overlay = lv_label_create(s_scr);
-    lv_label_set_text(s_overlay, "");
-    lv_obj_set_style_text_color(s_overlay, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_bg_color(s_overlay, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(s_overlay, LV_OPA_50, 0);
-    lv_obj_set_style_text_font(s_overlay, &lv_font_montserrat_12, 0);
-    lv_obj_align(s_overlay, LV_ALIGN_TOP_LEFT, 4, 4);
 
     lv_timer_create(slideshow_timer_cb, SLIDESHOW_PERIOD_MS, NULL);
 
