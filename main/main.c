@@ -241,12 +241,8 @@ static void gallery_open(void)
     s_switch_req = SWITCH_GALLERY;
 }
 
-/* Called from the slideshow Back button (LVGL thread) */
-static void gallery_close(void)
-{
-    s_cur_page = 4; /* back to SD status page */
-    s_switch_req = SWITCH_SD;
-}
+/* The slideshow has no UI controls: leave it with KEY3 (Home menu) or
+ * KEY2 (page cycle) — no close callback needed. */
 
 /* Called from the home menu: open the selected page (LVGL thread) */
 static void home_open_page(int page)
@@ -600,9 +596,8 @@ void app_main(void)
     // SD status page "Browse Files" -> file browser; back -> SD status page
     ui_sd_set_browse_cb(sd_files_open);
     ui_files_set_back_cb(sd_files_close);
-    // SD status page "Slide Show" -> picture gallery; back -> SD status page
+    // SD status page "Slide Show" -> picture gallery (KEY3/KEY2 to leave)
     ui_sd_set_gallery_cb(gallery_open);
-    ui_gallery_set_back_cb(gallery_close);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,
