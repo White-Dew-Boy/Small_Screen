@@ -375,6 +375,7 @@ static bool upload_name_valid(const char *name)
 }
 
 static const char HTML_HEAD[] =
+    "<!-- v3 -->"
     "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>ESP32 SD Upload</title>"
     "<style>body{font-family:sans-serif;max-width:620px;margin:32px auto;padding:0 14px;color:#222}"
     "h2{color:#155}li{margin:5px 0}a{text-decoration:none}input,button{font-size:16px;padding:6px}</style>"
@@ -431,6 +432,10 @@ static esp_err_t index_handler(httpd_req_t *req)
      * (it writes Content-Length for just that call), so a multi-part body
      * must be sent with httpd_resp_send_chunk (chunked transfer). */
     httpd_resp_set_type(req, "text/html");
+    /* Never let the browser cache the page: a stale cached copy without
+     * the <script> block surfaces as "up is not defined" on the Upload
+     * button. */
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     httpd_resp_send_chunk(req, HTML_HEAD, HTTPD_RESP_USE_STRLEN);
     httpd_resp_send_chunk(req, s_io.list, HTTPD_RESP_USE_STRLEN);
     httpd_resp_send_chunk(req, HTML_FOOT, HTTPD_RESP_USE_STRLEN);
