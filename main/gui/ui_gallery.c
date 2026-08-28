@@ -18,7 +18,7 @@
 #define PIC_W                240
 #define PIC_H                320
 #define PIC_BYTES            (PIC_W * PIC_H * 2) /* 153,600 */
-#define SLIDESHOW_PERIOD_MS  5000
+#define SLIDESHOW_PERIOD_MS  10000
 
 /* Widgets */
 static lv_obj_t *s_scr;
@@ -36,7 +36,6 @@ static int s_cur = 0;
 
 static uint8_t *s_buf = NULL;   /* 150 KB frame buffer (PSRAM) */
 static lv_img_dsc_t s_dsc;      /* descriptor pointing at s_buf */
-static lv_timer_t *s_timer = NULL;
 
 void ui_gallery_set_back_cb(void (*cb)(void))
 {
@@ -100,16 +99,6 @@ static void show_pic(int idx)
         lv_obj_add_flag(s_loading, LV_OBJ_FLAG_HIDDEN);
         lv_label_set_text(s_overlay, "Read failed");
     }
-    if (s_timer != NULL) {
-        lv_timer_reset(s_timer); /* manual navigation restarts the countdown */
-    }
-}
-
-static void prev_pic(void)
-{
-    if (s_pic_count > 0) {
-        show_pic((s_cur + s_pic_count - 1) % s_pic_count);
-    }
 }
 
 static void next_pic(void)
@@ -117,18 +106,6 @@ static void next_pic(void)
     if (s_pic_count > 0) {
         show_pic((s_cur + 1) % s_pic_count);
     }
-}
-
-static void tap_left_cb(lv_event_t *e)
-{
-    (void)e;
-    prev_pic();
-}
-
-static void tap_right_cb(lv_event_t *e)
-{
-    (void)e;
-    next_pic();
 }
 
 static void back_click_cb(lv_event_t *e)
@@ -219,33 +196,7 @@ lv_obj_t *ui_gallery_create(void)
     lv_obj_set_style_text_font(s_overlay, &lv_font_montserrat_12, 0);
     lv_obj_align(s_overlay, LV_ALIGN_TOP_LEFT, 4, 4);
 
-    /* Touch zones: left half = previous, right half = next. Plain lv_obj
-     * gets the theme's card style too (white bg + border) — that would
-     * draw a white frame around each zone, incl. a line at x=120. Strip
-     * it here. */
-    lv_obj_t *left = lv_obj_create(s_scr);
-    lv_obj_set_size(left, 120, 320);
-    lv_obj_set_pos(left, 0, 0);
-    lv_obj_set_style_bg_opa(left, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(left, 0, 0);
-    lv_obj_set_style_pad_all(left, 0, 0);
-    lv_obj_set_style_radius(left, 0, 0);
-    lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(left, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(left, tap_left_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *right = lv_obj_create(s_scr);
-    lv_obj_set_size(right, 120, 320);
-    lv_obj_set_pos(right, 120, 0);
-    lv_obj_set_style_bg_opa(right, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(right, 0, 0);
-    lv_obj_set_style_pad_all(right, 0, 0);
-    lv_obj_set_style_radius(right, 0, 0);
-    lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(right, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(right, tap_right_cb, LV_EVENT_CLICKED, NULL);
-
-    /* Back button on top of the touch zones */
+    /* Back button */
     lv_obj_t *back = lv_btn_create(s_scr);
     lv_obj_set_size(back, 60, 32);
     lv_obj_align(back, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
@@ -256,7 +207,7 @@ lv_obj_t *ui_gallery_create(void)
     lv_obj_center(back_lbl);
     lv_obj_add_event_cb(back, back_click_cb, LV_EVENT_CLICKED, NULL);
 
-    s_timer = lv_timer_create(slideshow_timer_cb, SLIDESHOW_PERIOD_MS, NULL);
+    lv_timer_create(slideshow_timer_cb, SLIDESHOW_PERIOD_MS, NULL);
 
     return s_scr;
 }

@@ -6,8 +6,7 @@
  *
  * Scans the upload directory (/sdcard/esp32_files) for 240x320 raw RGB565
  * .bin images (153,600 bytes each, produced by tools/rgb565_convert.py
- * with --raw), auto-advances every few seconds, and lets the user flip
- * through them by tapping the left/right half of the screen.
+ * with --raw) and auto-advances through them every 10 seconds.
  *
  * All SD reads happen on the LVGL task (shared SPI bus, see sd_card.h);
  * each frame load blocks the task for ~50-100 ms, preceded by a rendered
