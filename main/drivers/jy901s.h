@@ -22,10 +22,10 @@
 #define JY901S_RX_GPIO       44     /* ESP32-S3 RXD0  <- JY901S TX */
 #define JY901S_BAUDRATE      9600   /* 模块出厂波特率（JY901S 多为 9600） */
 
-/* 维特智能 JY901S 分辨率（±16g / ±2000°/s 默认量程） */
+/* 维特智能 JY901S 分辨率（±16g / ±2000°/s / ±180° 默认量程） */
 #define JY901S_ACCEL_SCALE   0.0005f /* 加速度 g / LSB      */
 #define JY901S_GYRO_SCALE    0.05f   /* 角速度 deg/s / LSB  */
-#define JY901S_ANGLE_SCALE   0.01f   /* 角度   deg / LSB    */
+#define JY901S_ANGLE_SCALE   0.005f  /* 角度   deg / LSB    */
 #define JY901S_TEMP_SCALE    0.01f   /* 温度   degC / LSB   */
 
 typedef struct {

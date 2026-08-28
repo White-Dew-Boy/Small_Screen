@@ -21,12 +21,18 @@ static lv_obj_t *s_server_label;
 static lv_obj_t *s_upload_btn;
 static lv_obj_t *s_upload_btn_label;
 
-/* Callback to open the file browser (set by main.c, LVGL thread) */
+/* Callbacks to open the file browser / slideshow (set by main.c) */
 static void (*s_browse_cb)(void) = NULL;
+static void (*s_gallery_cb)(void) = NULL;
 
 void ui_sd_set_browse_cb(void (*cb)(void))
 {
     s_browse_cb = cb;
+}
+
+void ui_sd_set_gallery_cb(void (*cb)(void))
+{
+    s_gallery_cb = cb;
 }
 
 static void browse_click_cb(lv_event_t *e)
@@ -34,6 +40,14 @@ static void browse_click_cb(lv_event_t *e)
     (void)e;
     if (s_browse_cb != NULL) {
         s_browse_cb();
+    }
+}
+
+static void gallery_click_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_gallery_cb != NULL) {
+        s_gallery_cb();
     }
 }
 
@@ -193,6 +207,17 @@ lv_obj_t *ui_sd_create(void)
     lv_obj_set_style_text_color(s_server_label, lv_color_hex(0x8A94A0), 0);
     lv_obj_set_style_text_font(s_server_label, &lv_font_montserrat_12, 0);
     lv_obj_align(s_server_label, LV_ALIGN_CENTER, 0, 32);
+
+    /* Open the SD picture slideshow (240x320 .bin files) */
+    lv_obj_t *gallery_btn = lv_btn_create(s_scr);
+    lv_obj_set_size(gallery_btn, 120, 36);
+    lv_obj_align(gallery_btn, LV_ALIGN_CENTER, 0, 62);
+    lv_obj_set_style_bg_color(gallery_btn, lv_color_hex(0x2A323A), 0);
+    lv_obj_set_style_text_color(gallery_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *gallery_label = lv_label_create(gallery_btn);
+    lv_label_set_text(gallery_label, "Slide Show");
+    lv_obj_center(gallery_label);
+    lv_obj_add_event_cb(gallery_btn, gallery_click_cb, LV_EVENT_CLICKED, NULL);
 
     /* Open the file browser (shows "No SD card" inside if none mounted) */
     lv_obj_t *browse_btn = lv_btn_create(s_scr);

@@ -1,0 +1,110 @@
+#include "ui_gyro.h"
+#include "lvgl.h"
+#include <stdio.h>
+#include "drivers/jy901s.h"
+
+static lv_obj_t *wx_val;
+static lv_obj_t *wy_val;
+static lv_obj_t *wz_val;
+
+/* Callback to return to the Sensor page (set by main.c, LVGL thread) */
+static void (*s_back_cb)(void) = NULL;
+
+void ui_gyro_set_back_cb(void (*cb)(void))
+{
+    s_back_cb = cb;
+}
+
+/**
+ * @brief Format a float as "int.frac" (1 decimal).
+ *        LV_SPRINTF_USE_FLOAT is disabled in this project, so floats are
+ *        formatted manually.
+ */
+static void fmt_float(char *buf, size_t len, float v)
+{
+    int vi = (int)v;
+    int frac = (int)((v - vi) * 10);
+    if (frac < 0) {
+        frac = -frac;
+    }
+    snprintf(buf, len, "%d.%d", vi, frac);
+}
+
+/**
+ * @brief Create one data row: name label (left, blue) + value label (right, white).
+ */
+static lv_obj_t *make_row(lv_obj_t *scr, const char *name, int y_off)
+{
+    lv_obj_t *name_lbl = lv_label_create(scr);
+    lv_label_set_text(name_lbl, name);
+    lv_obj_set_style_text_color(name_lbl, lv_color_hex(0x8AB4F8), 0);
+    lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 30, y_off);
+
+    lv_obj_t *val_lbl = lv_label_create(scr);
+    lv_label_set_text(val_lbl, "--.- deg/s");
+    lv_obj_set_style_text_color(val_lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(val_lbl, LV_ALIGN_RIGHT_MID, -30, y_off);
+    return val_lbl;
+}
+
+static void gyro_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    jy901s_data_t d;
+    char b[12];
+
+    if (jy901s_get_data(&d) != ESP_OK) {
+        return;
+    }
+    if (!jy901s_is_online(1000)) {
+        lv_label_set_text(wx_val, "--.- deg/s");
+        lv_label_set_text(wy_val, "--.- deg/s");
+        lv_label_set_text(wz_val, "--.- deg/s");
+        return;
+    }
+
+    fmt_float(b, sizeof(b), d.wx);
+    lv_label_set_text_fmt(wx_val, "%s deg/s", b);
+    fmt_float(b, sizeof(b), d.wy);
+    lv_label_set_text_fmt(wy_val, "%s deg/s", b);
+    fmt_float(b, sizeof(b), d.wz);
+    lv_label_set_text_fmt(wz_val, "%s deg/s", b);
+}
+
+static void back_click_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_back_cb != NULL) {
+        s_back_cb();
+    }
+}
+
+lv_obj_t *ui_gyro_create(void)
+{
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
+
+    lv_obj_t *title = lv_label_create(scr);
+    lv_label_set_text(title, "Angular Velocity");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
+
+    wx_val = make_row(scr, "Wx", -60);
+    wy_val = make_row(scr, "Wy", -25);
+    wz_val = make_row(scr, "Wz",  10);
+
+    lv_obj_t *back_btn = lv_btn_create(scr);
+    lv_obj_set_size(back_btn, 120, 40);
+    lv_obj_align(back_btn, LV_ALIGN_TOP_MID, 0, 235);
+    lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x1565C0), 0);
+    lv_obj_set_style_text_color(back_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *back_label = lv_label_create(back_btn);
+    lv_label_set_text(back_label, "Back");
+    lv_obj_center(back_label);
+    lv_obj_add_event_cb(back_btn, back_click_cb, LV_EVENT_CLICKED, NULL);
+
+    /* Refresh every 500ms from the LVGL thread */
+    lv_timer_create(gyro_timer_cb, 500, NULL);
+
+    return scr;
+}

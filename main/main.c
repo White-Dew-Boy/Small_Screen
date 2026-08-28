@@ -16,7 +16,10 @@
 #include "drivers/mqtt_manager.h"
 #include "drivers/rgb_led.h"
 #include "drivers/time_manager.h"
-#include "ui_shtc3.h"
+#include "drivers/jy901s.h"
+#include "ui_sensor.h"
+#include "ui_accel.h"
+#include "ui_gyro.h"
 #include "ui_wifi.h"
 #include "ui_saved_wifi.h"
 #include "ui_nearby_wifi.h"
@@ -32,6 +35,7 @@
 #include "ui_home.h"
 #include "ui_sd.h"
 #include "ui_files.h"
+#include "ui_gallery.h"
 #include "ui_sysinfo.h"
 
 static const char *TAG = "app_main";
@@ -39,6 +43,8 @@ static const char *TAG = "app_main";
 /* UI screens, created once and switched with KEY2 */
 static lv_obj_t *scr_home;
 static lv_obj_t *scr_shtc3;
+static lv_obj_t *scr_accel;
+static lv_obj_t *scr_gyro;
 static lv_obj_t *scr_wifi;
 static lv_obj_t *scr_saved_wifi;
 static lv_obj_t *scr_nearby_wifi;
@@ -53,6 +59,7 @@ static lv_obj_t *scr_led_preset;
 static lv_obj_t *scr_led_custom;
 static lv_obj_t *scr_sd;
 static lv_obj_t *scr_sd_files;
+static lv_obj_t *scr_gallery;
 static lv_obj_t *scr_sysinfo;
 static lv_obj_t *scr_sysinfo_cpu;
 static lv_obj_t *scr_sysinfo_stack;
@@ -78,10 +85,13 @@ typedef enum {
     SWITCH_LED_CUSTOM,
     SWITCH_SD,
     SWITCH_SD_FILES,
+    SWITCH_GALLERY,
     SWITCH_SYSINFO,
     SWITCH_SYSINFO_CPU,
     SWITCH_SYSINFO_STACK,
     SWITCH_SYSINFO_ABOUT,
+    SWITCH_ACCEL,
+    SWITCH_GYRO,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
@@ -188,6 +198,28 @@ static void sysinfo_sub_close(void)
     s_switch_req = SWITCH_SYSINFO;
 }
 
+/* Called from the Sensor page "Accel" / "Gyro" buttons (LVGL thread) */
+static void accel_open(void)
+{
+    s_switch_req = SWITCH_ACCEL;
+}
+
+static void gyro_open(void)
+{
+    s_switch_req = SWITCH_GYRO;
+}
+
+/* Called from the Accel / Gyro pages back button (LVGL thread) */
+static void accel_close(void)
+{
+    s_switch_req = SWITCH_SHTC3;
+}
+
+static void gyro_close(void)
+{
+    s_switch_req = SWITCH_SHTC3;
+}
+
 /* Called from the SD status page "Browse Files" button (LVGL thread) */
 static void sd_files_open(void)
 {
@@ -197,6 +229,20 @@ static void sd_files_open(void)
 
 /* Called from the file browser Back button (LVGL thread) */
 static void sd_files_close(void)
+{
+    s_cur_page = 4; /* back to SD status page */
+    s_switch_req = SWITCH_SD;
+}
+
+/* Called from the SD status page "Slide Show" button (LVGL thread) */
+static void gallery_open(void)
+{
+    ui_gallery_refresh(); /* re-scan pictures before showing */
+    s_switch_req = SWITCH_GALLERY;
+}
+
+/* Called from the slideshow Back button (LVGL thread) */
+static void gallery_close(void)
 {
     s_cur_page = 4; /* back to SD status page */
     s_switch_req = SWITCH_SD;
@@ -255,6 +301,10 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_home);
             } else if (req == SWITCH_SHTC3) {
                 lv_scr_load(scr_shtc3);
+            } else if (req == SWITCH_ACCEL) {
+                lv_scr_load(scr_accel);
+            } else if (req == SWITCH_GYRO) {
+                lv_scr_load(scr_gyro);
             } else if (req == SWITCH_WIFI) {
                 lv_scr_load(scr_wifi);
             } else if (req == SWITCH_SAVED_WIFI) {
@@ -283,6 +333,8 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_sd);
             } else if (req == SWITCH_SD_FILES) {
                 lv_scr_load(scr_sd_files);
+            } else if (req == SWITCH_GALLERY) {
+                lv_scr_load(scr_gallery);
             } else if (req == SWITCH_SYSINFO) {
                 lv_scr_load(scr_sysinfo);
             } else if (req == SWITCH_SYSINFO_CPU) {
@@ -348,19 +400,35 @@ static void shtc3_task(void *arg)
         esp_err_t read_ret = shtc3_getdata(&raw_humi, &raw_temp);
         if (read_ret != ESP_OK) {
             ESP_LOGE(TAG, "SHTC3 read failed: %s", esp_err_to_name(read_ret));
-            ui_shtc3_set_invalid();
+            ui_sensor_set_invalid();
         } else {
             shtc3_caculate_data(&raw_humi, &raw_temp, &humi, &temp);
             ESP_LOGI(TAG, "SHTC3 data - Temperature: %.2f C, Humidity: %.2f %%RH", temp, humi);
 
             /* Publish to the LVGL thread (LVGL is not thread-safe) */
-            ui_shtc3_set_data(temp, humi);
+            ui_sensor_set_data(temp, humi);
 
             /* Publish to the MQTT broker (rate-limited internally) */
             mqtt_manager_publish_telemetry(temp, humi);
         }
 
         vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
+/* JY901S 9-axis IMU: the driver parses frames in its own task; this task just
+ * forwards the latest attitude sample to the sensor page (LVGL thread). */
+static void imu_task(void *arg)
+{
+    (void)arg;
+
+    jy901s_data_t d;
+    while (1) {
+        if (jy901s_get_data(&d) == ESP_OK) {
+            const bool online = jy901s_is_online(1000);
+            ui_sensor_set_imu_data(&d, online);
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -419,6 +487,15 @@ void app_main(void)
         xTaskCreate(shtc3_task, "shtc3_task", 4096, NULL, 5, NULL);
     }
 
+    // JY901S 9-axis IMU on UART0 (non-fatal: attitude shows "--" if absent)
+    esp_err_t imu_ret = jy901s_init();
+    if (imu_ret != ESP_OK) {
+        ESP_LOGE(TAG, "JY901S initialization failed: %s", esp_err_to_name(imu_ret));
+    } else {
+        ESP_LOGI(TAG, "JY901S initialized successfully");
+        xTaskCreate(imu_task, "imu_task", 4096, NULL, 5, NULL);
+    }
+
     // SD card shares the SPI bus with the LCD — must be initialized first.
     // Non-fatal: if no SD card is present, the LCD still works.
     esp_err_t sd_ret = sd_card_init();
@@ -450,7 +527,9 @@ void app_main(void)
 
     // Build all pages, start on the home menu
     scr_home = ui_home_create();
-    scr_shtc3 = ui_shtc3_create();
+    scr_shtc3 = ui_sensor_create();
+    scr_accel = ui_accel_create();
+    scr_gyro = ui_gyro_create();
     scr_wifi = ui_wifi_create();
     scr_saved_wifi = ui_saved_wifi_create();
     scr_nearby_wifi = ui_nearby_wifi_create();
@@ -465,6 +544,7 @@ void app_main(void)
     scr_led_custom = ui_led_custom_create();
     scr_sd = ui_sd_create();
     scr_sd_files = ui_files_create();
+    scr_gallery = ui_gallery_create();
     scr_sysinfo = ui_sysinfo_create();
     scr_sysinfo_cpu = ui_sysinfo_cpu_create();
     scr_sysinfo_stack = ui_sysinfo_stack_create();
@@ -474,6 +554,12 @@ void app_main(void)
     // Home menu entries -> pages; deep sleep button (implemented in power.c)
     ui_home_set_page_cb(home_open_page);
     ui_home_set_deepsleep_cb(power_deep_sleep);
+
+    // Sensor page buttons -> accel / gyro pages; back -> Sensor page
+    ui_sensor_set_accel_cb(accel_open);
+    ui_sensor_set_gyro_cb(gyro_open);
+    ui_accel_set_back_cb(accel_close);
+    ui_gyro_set_back_cb(gyro_close);
 
     // WiFi status page buttons -> saved / nearby pages
     ui_wifi_set_saved_cb(saved_wifi_open);
@@ -514,6 +600,9 @@ void app_main(void)
     // SD status page "Browse Files" -> file browser; back -> SD status page
     ui_sd_set_browse_cb(sd_files_open);
     ui_files_set_back_cb(sd_files_close);
+    // SD status page "Slide Show" -> picture gallery; back -> SD status page
+    ui_sd_set_gallery_cb(gallery_open);
+    ui_gallery_set_back_cb(gallery_close);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,

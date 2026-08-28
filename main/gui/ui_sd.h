@@ -22,3 +22,10 @@ lv_obj_t *ui_sd_create(void);
  *        the LVGL thread.
  */
 void ui_sd_set_browse_cb(void (*cb)(void));
+
+/**
+ * @brief Register a callback invoked when the "Slide Show" button is
+ *        pressed. The callback must switch to the picture slideshow page
+ *        from the LVGL thread.
+ */
+void ui_sd_set_gallery_cb(void (*cb)(void));
