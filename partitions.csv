@@ -1,0 +1,8 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# Note: if you change this file, flash the new partition table:
+#   idf.py flash  (or idf.py -p PORT flash)
+# nvs/phy_init keep their original offsets so existing NVS data
+# (WiFi credentials, MQTT config) survives a partition-table update.
+nvs,      data, nvs,     0x9000,  24K,
+phy_init, data, phy,     0xf000,  4K,
+factory,  app,  factory, 0x10000, 8M,

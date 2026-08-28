@@ -1,6 +1,7 @@
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-# WiFi + lwIP make the app exceed the default 1 MB factory partition
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+# Custom partition table: app (factory) enlarged to 8 MB (see partitions.csv)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_MEM_CUSTOM=y
 CONFIG_LV_FONT_MONTSERRAT_12=y
