@@ -196,6 +196,14 @@ lv_obj_t *ui_gallery_create(void)
 
     s_img = lv_img_create(s_scr);
     lv_obj_center(s_img);
+    /* The default theme applies its "card" style (white bg, border,
+     * padding) to plain objects incl. lv_img — strip it so the picture
+     * fills the whole screen edge to edge. */
+    lv_obj_set_style_bg_opa(s_img, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_img, 0, 0);
+    lv_obj_set_style_pad_all(s_img, 0, 0);
+    lv_obj_set_style_radius(s_img, 0, 0);
+    lv_obj_clear_flag(s_img, LV_OBJ_FLAG_SCROLLABLE);
 
     s_loading = lv_label_create(s_scr);
     lv_label_set_text(s_loading, "");
@@ -211,11 +219,17 @@ lv_obj_t *ui_gallery_create(void)
     lv_obj_set_style_text_font(s_overlay, &lv_font_montserrat_12, 0);
     lv_obj_align(s_overlay, LV_ALIGN_TOP_LEFT, 4, 4);
 
-    /* Touch zones: left half = previous, right half = next */
+    /* Touch zones: left half = previous, right half = next. Plain lv_obj
+     * gets the theme's card style too (white bg + border) — that would
+     * draw a white frame around each zone, incl. a line at x=120. Strip
+     * it here. */
     lv_obj_t *left = lv_obj_create(s_scr);
     lv_obj_set_size(left, 120, 320);
     lv_obj_set_pos(left, 0, 0);
     lv_obj_set_style_bg_opa(left, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(left, 0, 0);
+    lv_obj_set_style_pad_all(left, 0, 0);
+    lv_obj_set_style_radius(left, 0, 0);
     lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(left, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(left, tap_left_cb, LV_EVENT_CLICKED, NULL);
@@ -224,6 +238,9 @@ lv_obj_t *ui_gallery_create(void)
     lv_obj_set_size(right, 120, 320);
     lv_obj_set_pos(right, 120, 0);
     lv_obj_set_style_bg_opa(right, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(right, 0, 0);
+    lv_obj_set_style_pad_all(right, 0, 0);
+    lv_obj_set_style_radius(right, 0, 0);
     lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(right, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(right, tap_right_cb, LV_EVENT_CLICKED, NULL);
