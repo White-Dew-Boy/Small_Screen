@@ -437,7 +437,12 @@ static esp_err_t index_handler(httpd_req_t *req)
      * button. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     httpd_resp_send_chunk(req, HTML_HEAD, HTTPD_RESP_USE_STRLEN);
-    httpd_resp_send_chunk(req, s_io.list, HTTPD_RESP_USE_STRLEN);
+    /* Skip the list when it is empty: a zero-length send_chunk() writes
+     * "0\r\n", which chunked encoding treats as the END-OF-BODY marker,
+     * truncating the page (no <script> -> "up is not defined"). */
+    if (s_io.list[0] != '\0') {
+        httpd_resp_send_chunk(req, s_io.list, HTTPD_RESP_USE_STRLEN);
+    }
     httpd_resp_send_chunk(req, HTML_FOOT, HTTPD_RESP_USE_STRLEN);
     httpd_resp_send_chunk(req, NULL, 0); /* terminate the chunked body */
     return ESP_OK;
