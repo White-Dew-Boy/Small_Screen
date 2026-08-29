@@ -14,6 +14,7 @@ static const struct {
     { "LED",      0xE65100 }, /* orange */
     { "SD Card",  0x00695C }, /* teal   */
     { "System",   0x6A1B9A }, /* purple */
+    { "PC Perf",  0x00838F }, /* cyan   */
 };
 
 /* Callback to open a page (set by main.c, invoked from the LVGL thread) */
@@ -138,14 +139,16 @@ lv_obj_t *ui_home_create(void)
     lv_obj_align(s_clock_label, LV_ALIGN_TOP_MID, 0, 34);
     lv_timer_create(clock_timer_cb, 1000, NULL);
 
-    /* 2x3 grid of page entries (same height as the Deep Sleep button) */
-    for (int i = 0; i < 6; i++) {
+    /* 2x4 grid of page entries: 7 entries + one free slot (4 rows of 2).
+     * Buttons are 36 px tall so the 4th row still leaves room for the
+     * Deep Sleep button below. */
+    for (int i = 0; i < 7; i++) {
         int col = i % 2;
         int row = i / 2;
 
         lv_obj_t *btn = lv_btn_create(scr);
-        lv_obj_set_size(btn, 104, 40);
-        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 12 + col * 112, 56 + row * 48);
+        lv_obj_set_size(btn, 104, 36);
+        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 12 + col * 112, 54 + row * 40);
         lv_obj_set_style_bg_color(btn, lv_color_hex(s_entries[i].color), 0);
         lv_obj_set_style_text_color(btn, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_radius(btn, 8, 0);
@@ -158,10 +161,10 @@ lv_obj_t *ui_home_create(void)
                             (void *)(intptr_t)i);
     }
 
-    /* Deep sleep button (full width, below the 3rd grid row) */
+    /* Deep sleep button (full width, below the 4th grid row) */
     lv_obj_t *ds_btn = lv_btn_create(scr);
-    lv_obj_set_size(ds_btn, 216, 40);
-    lv_obj_align(ds_btn, LV_ALIGN_TOP_MID, 0, 210);
+    lv_obj_set_size(ds_btn, 216, 36);
+    lv_obj_align(ds_btn, LV_ALIGN_TOP_MID, 0, 218);
     lv_obj_set_style_bg_color(ds_btn, lv_color_hex(0x4527A0), 0);
     lv_obj_set_style_text_color(ds_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_radius(ds_btn, 8, 0);

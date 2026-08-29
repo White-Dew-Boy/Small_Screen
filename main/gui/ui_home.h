@@ -8,6 +8,7 @@
 #define HOME_PAGE_LED     3
 #define HOME_PAGE_SD      4
 #define HOME_PAGE_SYSINFO 5
+#define HOME_PAGE_PC_PERF 6
 
 /**
  * @brief Create the home menu page listing all main screens. Tapping an
