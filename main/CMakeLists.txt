@@ -23,6 +23,7 @@ idf_component_register(
         "gui/ui_files.c"
         "gui/ui_gallery.c"
         "gui/ui_sysinfo.c"
+        "gui/ui_pc_perf.c"
         "drivers/ft6336.c"
         "drivers/i2c_bus.c"
         "drivers/key.c"
@@ -37,6 +38,7 @@ idf_component_register(
         "drivers/wifi_manager.c"
         "drivers/mqtt_manager.c"
         "drivers/time_manager.c"
+        "drivers/ble_perf.c"
     INCLUDE_DIRS 
         "."
         "gui"
@@ -61,4 +63,5 @@ idf_component_register(
         esp_partition
         bootloader_support
         esp_psram
+        bt
 )

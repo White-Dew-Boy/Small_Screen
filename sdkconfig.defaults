@@ -28,3 +28,18 @@ CONFIG_LWIP_SNTP_MAX_SERVERS=2
 # Main log channel goes to USB-Serial-JTAG (TypeC, COM5); UART0 is reserved
 # for the JY901S IMU (GPIO43/44), so no log bytes leak into its RX line.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# PC-Perf page: BLE peripheral (NimBLE) receiving PC performance data.
+# ESP32-S3 is BLE-only; disable the unused roles/features to save RAM.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+# GAP 默认设备名也设为最终名字(双保险,与 ble_svc_gap_device_name_set() 一致)
+CONFIG_BT_NIMBLE_SVC_GAP_DEVICE_NAME="ESP32_PC_Monitor"
+# CONFIG_BT_NIMBLE_ROLE_CENTRAL is not set
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=247
+# CONFIG_BT_NIMBLE_SECURITY_ENABLE is not set
+# NimBLE host memory pool in PSRAM: internal RAM is tight (WiFi + MQTT/TLS +
+# BT controller), and an internal-memory NimBLE pool exhausted it — the LVGL
+# task (16 KB internal stack) then failed to start and the screen stayed white.
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
