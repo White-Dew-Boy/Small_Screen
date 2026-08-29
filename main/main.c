@@ -17,6 +17,7 @@
 #include "drivers/rgb_led.h"
 #include "drivers/time_manager.h"
 #include "drivers/jy901s.h"
+#include "drivers/ble_perf.h"
 #include "ui_sensor.h"
 #include "ui_accel.h"
 #include "ui_gyro.h"
@@ -37,6 +38,7 @@
 #include "ui_files.h"
 #include "ui_gallery.h"
 #include "ui_sysinfo.h"
+#include "ui_pc_perf.h"
 
 static const char *TAG = "app_main";
 
@@ -64,6 +66,7 @@ static lv_obj_t *scr_sysinfo;
 static lv_obj_t *scr_sysinfo_cpu;
 static lv_obj_t *scr_sysinfo_stack;
 static lv_obj_t *scr_sysinfo_about;
+static lv_obj_t *scr_pc_perf;
 
 /* Page-switch request produced by the key task and consumed by the LVGL task
  * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
@@ -92,12 +95,13 @@ typedef enum {
     SWITCH_SYSINFO_ABOUT,
     SWITCH_ACCEL,
     SWITCH_GYRO,
+    SWITCH_PC_PERF,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
 /* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT,
- * 3 = LED, 4 = SD, 5 = SYSINFO). Shared with the sub-page callbacks so the
- * cycle stays in sync (they return to their parent page). */
+ * 3 = LED, 4 = SD, 5 = SYSINFO, 6 = PC PERF). Shared with the sub-page
+ * callbacks so the cycle stays in sync (they return to their parent page). */
 static int s_cur_page = 0;
 
 /* Called from the WiFi status page "Saved WiFi" button (LVGL thread) */
@@ -264,6 +268,9 @@ static void home_open_page(int page)
     case HOME_PAGE_SYSINFO:
         s_switch_req = SWITCH_SYSINFO;
         break;
+    case HOME_PAGE_PC_PERF:
+        s_switch_req = SWITCH_PC_PERF;
+        break;
     default:
         s_switch_req = SWITCH_LED;
         break;
@@ -339,6 +346,8 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_sysinfo_stack);
             } else if (req == SWITCH_SYSINFO_ABOUT) {
                 lv_scr_load(scr_sysinfo_about);
+            } else if (req == SWITCH_PC_PERF) {
+                lv_scr_load(scr_pc_perf);
             }
         }
 
@@ -349,7 +358,7 @@ static void lvgl_task(void *arg)
 
 /* Scan the two buttons; page switches are applied by the LVGL task.
  * KEY2 cycles through pages: sensor -> wifi -> mqtt -> led -> sd ->
- * sysinfo -> sensor ...  KEY3 jumps back to the home menu. */
+ * sysinfo -> pc perf -> sensor ...  KEY3 jumps back to the home menu. */
 static void key_task(void *arg)
 {
     (void)arg;
@@ -357,7 +366,7 @@ static void key_task(void *arg)
     while (1) {
         key_scan();
         if (key_pressed_edge(KEY_ID_2)) {
-            s_cur_page = (s_cur_page + 1) % 6;
+            s_cur_page = (s_cur_page + 1) % 7;
             switch (s_cur_page) {
             case 0:
                 s_switch_req = SWITCH_SHTC3;
@@ -374,8 +383,11 @@ static void key_task(void *arg)
             case 4:
                 s_switch_req = SWITCH_SD;
                 break;
-            default:
+            case 5:
                 s_switch_req = SWITCH_SYSINFO;
+                break;
+            default:
+                s_switch_req = SWITCH_PC_PERF;
                 break;
             }
         } else if (key_pressed_edge(KEY_ID_3)) {
@@ -515,6 +527,12 @@ void app_main(void)
         ESP_LOGI(TAG, "RGB LED initialized");
     }
 
+    // BLE for the PC-Perf page: NOT started at boot. Internal RAM is too
+    // tight (WiFi + MQTT/TLS + BT controller exhausted it once, and the
+    // LVGL task's 16 KB internal stack failed to start — blank screen).
+    // NimBLE starts lazily the first time the PC Perf page is opened
+    // (ui_pc_perf.c), so boot memory stays identical to the pre-BLE build.
+
     // LVGL
     lv_init();
     ESP_ERROR_CHECK(lv_port_tick_init());
@@ -545,6 +563,7 @@ void app_main(void)
     scr_sysinfo_cpu = ui_sysinfo_cpu_create();
     scr_sysinfo_stack = ui_sysinfo_stack_create();
     scr_sysinfo_about = ui_sysinfo_about_create();
+    scr_pc_perf = ui_pc_perf_create();
     lv_scr_load(scr_home);
 
     // Home menu entries -> pages; deep sleep button (implemented in power.c)
@@ -606,7 +625,15 @@ void app_main(void)
     /* 16 KB stack: the LVGL task also executes the upload server's SD
      * file I/O (directory listing via opendir/readdir/stat/qsort inside
      * the 10 ms upload timer) on top of LVGL's own render/layout stack
-     * usage. 8 KB overflowed when the browser hit the upload page. */
-    xTaskCreatePinnedToCore(lvgl_task, "lvgl_task", 16384, NULL, 5, NULL, 0);
-    xTaskCreate(key_task, "key_task", 2048, NULL, 6, NULL);
+     * usage. 8 KB overflowed when the browser hit the upload page.
+     *
+     * NOTE: task stacks always come from internal RAM — a failure here
+     * (e.g. after enabling BLE) silently leaves the screen blank, so the
+     * return values are checked and logged. */
+    if (xTaskCreatePinnedToCore(lvgl_task, "lvgl_task", 16384, NULL, 5, NULL, 0) != pdPASS) {
+        ESP_LOGE(TAG, "FAILED to create lvgl_task (internal RAM exhausted?) — screen will stay blank");
+    }
+    if (xTaskCreate(key_task, "key_task", 2048, NULL, 6, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "FAILED to create key_task (internal RAM exhausted?)");
+    }
 }
