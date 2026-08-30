@@ -68,6 +68,20 @@ static void split1(float v, int *vi, int *frac)
     }
 }
 
+/* Same as split1 but with two decimal digits (used for network speeds,
+ * whose wire precision is KB/s x 1000). Format with "%d.%02d". */
+static void split2(float v, int *vi, int *frac)
+{
+    *vi = (int)v;
+    *frac = (int)((v - (float)*vi) * 100.0f);
+    if (*frac < 0) {
+        *frac = -*frac;
+    }
+    if (*frac > 99) {
+        *frac = 99;
+    }
+}
+
 /* Bar color by usage: green < 60 %, orange 60..85 %, red > 85 % */
 static uint32_t bar_color(float pct)
 {
@@ -266,14 +280,15 @@ static void pc_perf_timer_cb(lv_timer_t *timer)
     }
     set_optional(s_disk_row, s_disk_val, d.disk_pct > 0.1f, txt);
 
-    /* Upload / download speeds (KB/s) */
-    split1(d.up_kbs, &vi, &fr);
-    snprintf(txt, sizeof(txt), "%d.%d KB/s", vi, fr);
+    /* Upload / download speeds (KB/s, two decimals to keep slow links
+     * readable, e.g. 0.44 KB/s) */
+    split2(d.up_kbs, &vi, &fr);
+    snprintf(txt, sizeof(txt), "%d.%02d KB/s", vi, fr);
     lv_label_set_text(s_up_val, txt);
     lv_obj_set_style_text_color(s_up_val, fresh ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x757575), 0);
 
-    split1(d.down_kbs, &vi, &fr);
-    snprintf(txt, sizeof(txt), "%d.%d KB/s", vi, fr);
+    split2(d.down_kbs, &vi, &fr);
+    snprintf(txt, sizeof(txt), "%d.%02d KB/s", vi, fr);
     lv_label_set_text(s_down_val, txt);
     lv_obj_set_style_text_color(s_down_val, fresh ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x757575), 0);
 
@@ -331,11 +346,6 @@ lv_obj_t *ui_pc_perf_create(void)
     make_text_row(body, "Download", &s_down_val);
     s_temp_row = make_text_row(body, "CPU Temp", &s_temp_val);
     s_fps_row = make_text_row(body, "FPS", &s_fps_val);
-
-    lv_obj_t *hint = lv_label_create(scr);
-    lv_label_set_text(hint, "BLE starts here - run your PC tool");
-    lv_obj_set_style_text_color(hint, lv_color_hex(0x616161), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
 
     lv_timer_create(pc_perf_timer_cb, PC_PERF_REFRESH_MS, NULL);
 
