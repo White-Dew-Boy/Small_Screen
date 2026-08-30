@@ -14,6 +14,8 @@
  *          mem_pct  - physical memory usage in percent (0..100)
  *          up_kbs   - network upload speed, KB/s
  *          down_kbs - network download speed, KB/s
+ *        (the wire fields carry KB/s x 1000, i.e. B/s; the driver divides
+ *        by 1000 when publishing)
  *        The following are optional (0.0 = not reported by the sender):
  *          gpu_pct  - GPU load in percent
  *          disk_pct - main disk usage in percent
@@ -49,8 +51,8 @@ typedef struct {
  *               [1]  version 0x01
  *               [2..3]   cpu   u16, 0.1 %
  *               [4..5]   mem   u16, 0.1 %
- *               [6..9]   up    u32, KB/s
- *               [10..13] down  u32, KB/s
+ *               [6..9]   up    u32, KB/s x 1000 (i.e. B/s)
+ *               [10..13] down  u32, KB/s x 1000 (i.e. B/s)
  *               [14..15] gpu   u16, 0.1 %   (0 = not reported)
  *               [16..17] disk  u16, 0.1 %   (0 = not reported)
  *               [18..19] temp  i16, 0.1 C   (0 or -32768 = not reported)

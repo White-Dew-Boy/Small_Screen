@@ -40,7 +40,7 @@ static const ble_uuid128_t chr_data_uuid = BLE_UUID128_INIT(
 /* Wire protocol: fixed-length binary frame, 22 bytes little-endian:
  *       [0] magic 0x50, [1] version 0x01,
  *       [2..3] cpu u16 (0.1%), [4..5] mem u16 (0.1%),
- *       [6..9] up u32 (KB/s), [10..13] down u32 (KB/s),
+ *       [6..9] up u32 (KB/s x 1000, i.e. B/s), [10..13] down u32 (same),
  *       [14..15] gpu u16 (0.1%), [16..17] disk u16 (0.1%),
  *       [18..19] temp i16 (0.1 C), [20..21] fps u16
  *     Sentinel: 0 in an optional field = not reported. For temp, the
@@ -96,8 +96,9 @@ static void parse_binary(const uint8_t *f)
 
     s_data.cpu_pct = cpu / 10.0f;
     s_data.mem_pct = mem / 10.0f;
-    s_data.up_kbs = (float)up;
-    s_data.down_kbs = (float)down;
+    /* Speeds are fixed-point KB/s x 1000 (i.e. B/s): divide by 1000. */
+    s_data.up_kbs = (float)up / 1000.0f;
+    s_data.down_kbs = (float)down / 1000.0f;
     s_data.gpu_pct = gpu / 10.0f;
     s_data.disk_pct = disk / 10.0f;
     /* temp sentinel: 0 (current sender) or -32768 (reserved) = not reported */
