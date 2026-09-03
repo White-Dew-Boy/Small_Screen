@@ -116,61 +116,53 @@ static void wifi_display_timer_cb(lv_timer_t *timer)
  */
 lv_obj_t *ui_wifi_create(void)
 {
+    /* Landscape 320x240, like the Home/PC-Perf pages: main.c rotates the
+     * whole display to landscape before this screen is loaded. */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "WiFi Status");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    /* Status line (colored by state) */
+    /* Status lines, evenly spaced below the title */
     state_label = lv_label_create(scr);
     lv_label_set_text(state_label, "Status: Idle");
     lv_obj_set_style_text_color(state_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(state_label, LV_ALIGN_CENTER, 0, -60);
+    lv_obj_align(state_label, LV_ALIGN_TOP_MID, 0, 26);
 
     ssid_label = lv_label_create(scr);
     lv_label_set_text(ssid_label, "SSID: --");
     lv_obj_set_style_text_color(ssid_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(ssid_label, LV_ALIGN_CENTER, 0, -35);
+    lv_obj_align(ssid_label, LV_ALIGN_TOP_MID, 0, 48);
 
     ip_label = lv_label_create(scr);
     lv_label_set_text(ip_label, "IP: --");
     lv_obj_set_style_text_color(ip_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(ip_label, LV_ALIGN_CENTER, 0, -12);
+    lv_obj_align(ip_label, LV_ALIGN_TOP_MID, 0, 70);
 
     rssi_label = lv_label_create(scr);
     lv_label_set_text(rssi_label, "RSSI: --");
     lv_obj_set_style_text_color(rssi_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(rssi_label, LV_ALIGN_CENTER, 0, 11);
+    lv_obj_align(rssi_label, LV_ALIGN_TOP_MID, 0, 92);
 
     retry_label = lv_label_create(scr);
     lv_label_set_text(retry_label, "Auto reconnect: 0 time(s)");
     lv_obj_set_style_text_color(retry_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(retry_label, LV_ALIGN_CENTER, 0, 34);
+    lv_obj_align(retry_label, LV_ALIGN_TOP_MID, 0, 114);
 
     /* Disconnect reason (shown when not connected, e.g. "AP not found") */
     reason_label = lv_label_create(scr);
     lv_label_set_text(reason_label, "");
     lv_obj_set_style_text_color(reason_label, lv_color_hex(0xFFB74D), 0);
-    lv_obj_align(reason_label, LV_ALIGN_CENTER, 0, 55);
+    lv_obj_align(reason_label, LV_ALIGN_TOP_MID, 0, 136);
 
-    /* Disconnect button (full width, above the entry buttons) */
-    lv_obj_t *disc_btn = lv_btn_create(scr);
-    lv_obj_set_size(disc_btn, 216, 34);
-    lv_obj_align(disc_btn, LV_ALIGN_TOP_MID, 0, 222);
-    lv_obj_set_style_bg_color(disc_btn, lv_color_hex(0xC62828), 0);
-    lv_obj_set_style_text_color(disc_btn, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_t *disc_label = lv_label_create(disc_btn);
-    lv_label_set_text(disc_label, "Disconnect");
-    lv_obj_center(disc_label);
-    lv_obj_add_event_cb(disc_btn, disconnect_click_cb, LV_EVENT_CLICKED, NULL);
-
-    /* Bottom buttons: Saved WiFi | Nearby WiFi */
+    /* Bottom row: Saved WiFi | Disconnect | Nearby WiFi */
     lv_obj_t *saved_btn = lv_btn_create(scr);
-    lv_obj_set_size(saved_btn, 102, 38);
-    lv_obj_align(saved_btn, LV_ALIGN_BOTTOM_LEFT, 12, -12);
+    lv_obj_set_size(saved_btn, 93, 40);
+    lv_obj_align(saved_btn, LV_ALIGN_TOP_LEFT, 12, 182);
     lv_obj_set_style_bg_color(saved_btn, lv_color_hex(0x1565C0), 0);
     lv_obj_set_style_text_color(saved_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *saved_label = lv_label_create(saved_btn);
@@ -178,9 +170,20 @@ lv_obj_t *ui_wifi_create(void)
     lv_obj_center(saved_label);
     lv_obj_add_event_cb(saved_btn, saved_click_cb, LV_EVENT_CLICKED, NULL);
 
+    /* Disconnect (red, middle) */
+    lv_obj_t *disc_btn = lv_btn_create(scr);
+    lv_obj_set_size(disc_btn, 93, 40);
+    lv_obj_align(disc_btn, LV_ALIGN_TOP_LEFT, 113, 182);
+    lv_obj_set_style_bg_color(disc_btn, lv_color_hex(0xC62828), 0);
+    lv_obj_set_style_text_color(disc_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *disc_label = lv_label_create(disc_btn);
+    lv_label_set_text(disc_label, "Disconnect");
+    lv_obj_center(disc_label);
+    lv_obj_add_event_cb(disc_btn, disconnect_click_cb, LV_EVENT_CLICKED, NULL);
+
     lv_obj_t *nearby_btn = lv_btn_create(scr);
-    lv_obj_set_size(nearby_btn, 102, 38);
-    lv_obj_align(nearby_btn, LV_ALIGN_BOTTOM_RIGHT, -12, -12);
+    lv_obj_set_size(nearby_btn, 93, 40);
+    lv_obj_align(nearby_btn, LV_ALIGN_TOP_LEFT, 214, 182);
     lv_obj_set_style_bg_color(nearby_btn, lv_color_hex(0x2E7D32), 0);
     lv_obj_set_style_text_color(nearby_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *nearby_label = lv_label_create(nearby_btn);

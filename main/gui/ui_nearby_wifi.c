@@ -16,6 +16,7 @@ typedef enum {
 } nf_mode_t;
 
 /* List-view widgets */
+static lv_obj_t *s_title;
 static lv_obj_t *s_scan_label;
 static lv_obj_t *s_ap_list;
 static lv_obj_t *s_back_btn;
@@ -54,15 +55,18 @@ static const char *rssi_bar(int8_t rssi)
 static void set_view_list(void)
 {
     lv_obj_add_flag(s_pass_view, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(s_title, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_scan_label, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_ap_list, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_back_btn, LV_OBJ_FLAG_HIDDEN);
 }
 
-/* Show the password-entry view. */
+/* Show the password-entry view. The main title is hidden too, because the
+ * password view draws its own "Password for <ssid>" line at the top. */
 static void set_view_pass(void)
 {
     lv_obj_clear_flag(s_pass_view, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_title, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_scan_label, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_ap_list, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_back_btn, LV_OBJ_FLAG_HIDDEN);
@@ -220,23 +224,26 @@ void ui_nearby_wifi_start_scan(void)
 
 lv_obj_t *ui_nearby_wifi_create(void)
 {
+    /* Landscape 320x240, like the WiFi status page it belongs to. */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "Nearby WiFi");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
+    s_title = title;
 
     /* --- List view --- */
     s_scan_label = lv_label_create(scr);
     lv_label_set_text(s_scan_label, "");
     lv_obj_set_style_text_color(s_scan_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_scan_label, LV_ALIGN_TOP_MID, 0, 36);
+    lv_obj_align(s_scan_label, LV_ALIGN_TOP_MID, 0, 30);
 
     s_ap_list = lv_list_create(scr);
-    lv_obj_set_size(s_ap_list, 240, 200);
-    lv_obj_align(s_ap_list, LV_ALIGN_TOP_MID, 0, 56);
+    lv_obj_set_size(s_ap_list, 296, 142);
+    lv_obj_align(s_ap_list, LV_ALIGN_TOP_MID, 0, 50);
     lv_obj_set_style_bg_color(s_ap_list, lv_color_hex(0x1E242B), 0);
     lv_obj_set_style_border_color(s_ap_list, lv_color_hex(0x3A444E), 0);
     lv_obj_set_style_pad_all(s_ap_list, 4, 0);
@@ -244,7 +251,7 @@ lv_obj_t *ui_nearby_wifi_create(void)
 
     s_back_btn = lv_btn_create(scr);
     lv_obj_set_size(s_back_btn, 100, 36);
-    lv_obj_align(s_back_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_align(s_back_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_obj_set_style_bg_color(s_back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(s_back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *back_label = lv_label_create(s_back_btn);
@@ -254,7 +261,7 @@ lv_obj_t *ui_nearby_wifi_create(void)
 
     /* --- Password view (hidden until an AP is tapped) --- */
     s_pass_view = lv_obj_create(scr);
-    lv_obj_set_size(s_pass_view, 240, 320);
+    lv_obj_set_size(s_pass_view, 320, 240);
     lv_obj_set_pos(s_pass_view, 0, 0);
     lv_obj_set_style_bg_opa(s_pass_view, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_pass_view, 0, 0);
@@ -263,11 +270,11 @@ lv_obj_t *ui_nearby_wifi_create(void)
     s_pass_label = lv_label_create(s_pass_view);
     lv_label_set_text(s_pass_label, "Password");
     lv_obj_set_style_text_color(s_pass_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(s_pass_label, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(s_pass_label, LV_ALIGN_TOP_MID, 0, 4);
 
     s_pass_ta = lv_textarea_create(s_pass_view);
-    lv_obj_set_size(s_pass_ta, 172, 34);
-    lv_obj_align(s_pass_ta, LV_ALIGN_TOP_LEFT, 12, 56);
+    lv_obj_set_size(s_pass_ta, 200, 32);
+    lv_obj_align(s_pass_ta, LV_ALIGN_TOP_LEFT, 12, 20);
     lv_obj_set_style_bg_color(s_pass_ta, lv_color_hex(0x1E242B), 0);
     lv_obj_set_style_text_color(s_pass_ta, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_border_color(s_pass_ta, lv_color_hex(0x3A444E), 0);
@@ -277,8 +284,8 @@ lv_obj_t *ui_nearby_wifi_create(void)
     lv_textarea_set_password_mode(s_pass_ta, true);
 
     s_pass_toggle_btn = lv_btn_create(s_pass_view);
-    lv_obj_set_size(s_pass_toggle_btn, 40, 34);
-    lv_obj_align(s_pass_toggle_btn, LV_ALIGN_TOP_RIGHT, -12, 56);
+    lv_obj_set_size(s_pass_toggle_btn, 40, 32);
+    lv_obj_align(s_pass_toggle_btn, LV_ALIGN_TOP_LEFT, 216, 20);
     lv_obj_set_style_bg_color(s_pass_toggle_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(s_pass_toggle_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *toggle_label = lv_label_create(s_pass_toggle_btn);
@@ -289,11 +296,11 @@ lv_obj_t *ui_nearby_wifi_create(void)
     s_msg_label = lv_label_create(s_pass_view);
     lv_label_set_text(s_msg_label, "");
     lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xF44336), 0);
-    lv_obj_align(s_msg_label, LV_ALIGN_TOP_MID, 0, 96);
+    lv_obj_align(s_msg_label, LV_ALIGN_TOP_MID, 0, 56);
 
     lv_obj_t *pass_back_btn = lv_btn_create(s_pass_view);
-    lv_obj_set_size(pass_back_btn, 100, 36);
-    lv_obj_align(pass_back_btn, LV_ALIGN_TOP_LEFT, 12, 120);
+    lv_obj_set_size(pass_back_btn, 140, 32);
+    lv_obj_align(pass_back_btn, LV_ALIGN_TOP_LEFT, 12, 72);
     lv_obj_set_style_bg_color(pass_back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(pass_back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *pback_label = lv_label_create(pass_back_btn);
@@ -302,8 +309,8 @@ lv_obj_t *ui_nearby_wifi_create(void)
     lv_obj_add_event_cb(pass_back_btn, pass_back_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *confirm_btn = lv_btn_create(s_pass_view);
-    lv_obj_set_size(confirm_btn, 100, 36);
-    lv_obj_align(confirm_btn, LV_ALIGN_TOP_RIGHT, -12, 120);
+    lv_obj_set_size(confirm_btn, 140, 32);
+    lv_obj_align(confirm_btn, LV_ALIGN_TOP_RIGHT, -12, 72);
     lv_obj_set_style_bg_color(confirm_btn, lv_color_hex(0x2E7D32), 0);
     lv_obj_set_style_text_color(confirm_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *confirm_label = lv_label_create(confirm_btn);
@@ -312,7 +319,7 @@ lv_obj_t *ui_nearby_wifi_create(void)
     lv_obj_add_event_cb(confirm_btn, confirm_click_cb, LV_EVENT_CLICKED, NULL);
 
     s_kb = lv_keyboard_create(s_pass_view);
-    lv_obj_set_size(s_kb, 240, 150);
+    lv_obj_set_size(s_kb, 320, 132);
     lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_keyboard_set_textarea(s_kb, s_pass_ta);
     lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
