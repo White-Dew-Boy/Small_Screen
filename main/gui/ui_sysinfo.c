@@ -17,7 +17,8 @@
 #define SYSINFO_REFRESH_MS 2000
 
 #define MAX_TASKS     24
-#define DETAIL_ROWS   12  /* rows on the CPU / stack detail pages */
+#define DETAIL_ROWS   (MAX_TASKS + 1) /* every task + the IDLE summary row */
+#define ROW_PITCH     18              /* vertical spacing of detail rows */
 
 /*==========================================================================
  * Shared per-task stats collection (used by all three pages)
@@ -163,14 +164,15 @@ static void sort_by_hwm_asc(sysinfo_task_t *arr, int n)
  * Widget helpers
  *==========================================================================*/
 
-/* Left-aligned 12px text row at (16, y) */
-static lv_obj_t *make_line(lv_obj_t *parent, const char *text, uint32_t color, int y)
+/* Left-aligned 12px text row at (x, y) */
+static lv_obj_t *make_line(lv_obj_t *parent, const char *text, uint32_t color,
+                           int x, int y)
 {
     lv_obj_t *lbl = lv_label_create(parent);
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(color), 0);
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 16, y);
+    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, x, y);
     return lbl;
 }
 
@@ -351,36 +353,35 @@ static void about_btn_cb(lv_event_t *e)
 
 lv_obj_t *ui_sysinfo_create(void)
 {
+    /* Landscape 320x240, like the Home/PC-Perf pages: main.c rotates the
+     * whole display to landscape before this screen is loaded. */
     s_scr = lv_obj_create(NULL);
+    lv_obj_set_size(s_scr, 320, 240);
     lv_obj_set_style_bg_color(s_scr, lv_color_hex(0x101418), 0);
 
     /* Title (default 14px font) */
     lv_obj_t *title = lv_label_create(s_scr);
     lv_label_set_text(title, "System Info");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    /* Always-visible info rows: gray label + white value, 14px */
-    up_label     = make_info_row(s_scr, "Uptime", 32);
+    /* Always-visible info rows: gray label + white value, 14px.
+     * Rows are full-width single lines, spaced every 22 px. */
+    up_label     = make_info_row(s_scr, "Uptime", 30);
     heap_label   = make_info_row(s_scr, "Free heap", 52);
-    min_label    = make_info_row(s_scr, "Min free", 72);
-    mem_label    = make_info_row(s_scr, "Int RAM", 92);
-    psram_label  = make_info_row(s_scr, "PSRAM", 112);
-    fw_label     = make_info_row(s_scr, "Firmware", 132);
-    cpu_load_label = make_info_row(s_scr, "CPU load", 152);
+    min_label    = make_info_row(s_scr, "Min free", 74);
+    mem_label    = make_info_row(s_scr, "Int RAM", 96);
+    psram_label  = make_info_row(s_scr, "PSRAM", 118);
+    fw_label     = make_info_row(s_scr, "Firmware", 140);
+    cpu_load_label = make_info_row(s_scr, "CPU load", 162);
 
     /* Flashed firmware size: read once (image verify walks the whole image) */
     firmware_size_init();
 
-    /* Detail-page buttons */
-    make_button(s_scr, "CPU Load", 0x1565C0, 12, 184, 104, 40, cpu_btn_cb);
-    make_button(s_scr, "Stack HWM", 0x00695C, 124, 184, 104, 40, stack_btn_cb);
-    make_button(s_scr, "About", 0x4527A0, 12, 232, 216, 40, about_btn_cb);
-
-    lv_obj_t *hint = lv_label_create(s_scr);
-    lv_label_set_text(hint, "KEY3: back to Home");
-    lv_obj_set_style_text_color(hint, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
+    /* Detail-page buttons (one row at the bottom) */
+    make_button(s_scr, "CPU Load", 0x1565C0, 12, 194, 93, 36, cpu_btn_cb);
+    make_button(s_scr, "Stack HWM", 0x00695C, 113, 194, 93, 36, stack_btn_cb);
+    make_button(s_scr, "About", 0x4527A0, 214, 194, 93, 36, about_btn_cb);
 
     lv_timer_create(sysinfo_main_timer_cb, SYSINFO_REFRESH_MS, NULL);
 
@@ -432,23 +433,26 @@ static void sysinfo_cpu_timer_cb(lv_timer_t *timer)
     }
     sort_by_pct_desc(tasks, busy);
 
-    int max_rows = DETAIL_ROWS - 1; /* last row is reserved for IDLE */
-    int shown = busy < max_rows ? busy : max_rows;
-    for (int r = 0; r < shown; r++) {
-        lv_label_set_text_fmt(cpu_rows[r], "%-10s %2lu.%lu%%",
-                              tasks[r].name,
-                              (unsigned long)(tasks[r].pct_mil / 10),
-                              (unsigned long)(tasks[r].pct_mil % 10));
-        lv_obj_clear_flag(cpu_rows[r], LV_OBJ_FLAG_HIDDEN);
+    /* Busy tasks in order, then the combined IDLE line right after them,
+     * so the visible list is gap-free (each row = one line in the
+     * scrollable container). */
+    for (int r = 0; r < DETAIL_ROWS; r++) {
+        if (r < busy) {
+            lv_label_set_text_fmt(cpu_rows[r], "%-10s %2lu.%lu%%",
+                                  tasks[r].name,
+                                  (unsigned long)(tasks[r].pct_mil / 10),
+                                  (unsigned long)(tasks[r].pct_mil % 10));
+            lv_obj_clear_flag(cpu_rows[r], LV_OBJ_FLAG_HIDDEN);
+        } else if (r == busy) {
+            lv_label_set_text_fmt(cpu_rows[r], "%-10s %2lu.%lu%%",
+                                  "IDLE",
+                                  (unsigned long)(idle_mil / 10),
+                                  (unsigned long)(idle_mil % 10));
+            lv_obj_clear_flag(cpu_rows[r], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(cpu_rows[r], LV_OBJ_FLAG_HIDDEN);
+        }
     }
-    for (int r = shown; r < DETAIL_ROWS - 1; r++) {
-        lv_obj_add_flag(cpu_rows[r], LV_OBJ_FLAG_HIDDEN);
-    }
-    lv_label_set_text_fmt(cpu_rows[DETAIL_ROWS - 1], "%-10s %2lu.%lu%%",
-                          "IDLE",
-                          (unsigned long)(idle_mil / 10),
-                          (unsigned long)(idle_mil % 10));
-    lv_obj_clear_flag(cpu_rows[DETAIL_ROWS - 1], LV_OBJ_FLAG_HIDDEN);
 }
 
 static void cpu_back_cb(lv_event_t *e)
@@ -461,22 +465,37 @@ static void cpu_back_cb(lv_event_t *e)
 
 lv_obj_t *ui_sysinfo_cpu_create(void)
 {
+    /* Landscape 320x240: a scrollable single column holds up to
+     * DETAIL_ROWS (25) task rows; content taller than the viewport swipes
+     * vertically so every task stays reachable. */
     s_cpu_scr = lv_obj_create(NULL);
+    lv_obj_set_size(s_cpu_scr, 320, 240);
     lv_obj_set_style_bg_color(s_cpu_scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(s_cpu_scr);
     lv_label_set_text(title, "CPU Load");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    make_line(s_cpu_scr, "2s avg, all tasks", 0x9E9E9E, 30);
+    make_line(s_cpu_scr, "2s avg, all tasks", 0x9E9E9E, 16, 26);
+
+    /* Scrollable row container between the subtitle and the Back button */
+    lv_obj_t *cont = lv_obj_create(s_cpu_scr);
+    lv_obj_set_pos(cont, 12, 44);
+    lv_obj_set_size(cont, 296, 144);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cont, 0, 0);
+    lv_obj_set_style_pad_all(cont, 0, 0);
+    lv_obj_add_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(cont, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(cont, LV_SCROLLBAR_MODE_AUTO);
 
     for (int i = 0; i < DETAIL_ROWS; i++) {
-        cpu_rows[i] = make_line(s_cpu_scr, "", 0xCFCFCF, 46 + i * 16);
+        cpu_rows[i] = make_line(cont, "", 0xCFCFCF, 8, i * ROW_PITCH);
         lv_obj_add_flag(cpu_rows[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    make_button(s_cpu_scr, "Back", 0x455A64, 60, 262, 120, 36, cpu_back_cb);
+    make_button(s_cpu_scr, "Back", 0x455A64, 100, 196, 120, 36, cpu_back_cb);
 
     lv_timer_create(sysinfo_cpu_timer_cb, SYSINFO_REFRESH_MS, NULL);
 
@@ -508,8 +527,14 @@ static void sysinfo_stack_timer_cb(lv_timer_t *timer)
     int n = sysinfo_collect(tasks, MAX_TASKS);
     sort_by_hwm_asc(tasks, n); /* smallest remaining stack first */
 
-    int shown = n < DETAIL_ROWS ? n : DETAIL_ROWS;
-    for (int r = 0; r < shown; r++) {
+    /* Show every collected task (n <= MAX_TASKS); extra pre-created rows
+     * stay hidden so the visible list has no gaps. */
+    int shown = n;
+    for (int r = 0; r < DETAIL_ROWS; r++) {
+        if (r >= shown) {
+            lv_obj_add_flag(stack_rows[r], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
         /* HWM is in words; convert to bytes for a direct comparison with the
          * allocated stack size. */
         uint32_t hwm_bytes = tasks[r].stack_hwm * sizeof(StackType_t);
@@ -535,9 +560,6 @@ static void sysinfo_stack_timer_cb(lv_timer_t *timer)
         }
         lv_obj_clear_flag(stack_rows[r], LV_OBJ_FLAG_HIDDEN);
     }
-    for (int r = shown; r < DETAIL_ROWS; r++) {
-        lv_obj_add_flag(stack_rows[r], LV_OBJ_FLAG_HIDDEN);
-    }
 }
 
 static void stack_back_cb(lv_event_t *e)
@@ -550,22 +572,37 @@ static void stack_back_cb(lv_event_t *e)
 
 lv_obj_t *ui_sysinfo_stack_create(void)
 {
+    /* Landscape 320x240: a scrollable single column holds up to
+     * DETAIL_ROWS (25) task rows; content taller than the viewport swipes
+     * vertically so every task stays reachable. */
     s_stack_scr = lv_obj_create(NULL);
+    lv_obj_set_size(s_stack_scr, 320, 240);
     lv_obj_set_style_bg_color(s_stack_scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(s_stack_scr);
     lv_label_set_text(title, "Stack HWM");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    make_line(s_stack_scr, "free/total bytes, since boot", 0x9E9E9E, 30);
+    make_line(s_stack_scr, "free/total bytes, since boot", 0x9E9E9E, 16, 26);
+
+    /* Scrollable row container between the subtitle and the Back button */
+    lv_obj_t *cont = lv_obj_create(s_stack_scr);
+    lv_obj_set_pos(cont, 12, 44);
+    lv_obj_set_size(cont, 296, 144);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cont, 0, 0);
+    lv_obj_set_style_pad_all(cont, 0, 0);
+    lv_obj_add_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(cont, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(cont, LV_SCROLLBAR_MODE_AUTO);
 
     for (int i = 0; i < DETAIL_ROWS; i++) {
-        stack_rows[i] = make_line(s_stack_scr, "", 0xCFCFCF, 46 + i * 16);
+        stack_rows[i] = make_line(cont, "", 0xCFCFCF, 8, i * ROW_PITCH);
         lv_obj_add_flag(stack_rows[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    make_button(s_stack_scr, "Back", 0x455A64, 60, 262, 120, 36, stack_back_cb);
+    make_button(s_stack_scr, "Back", 0x455A64, 100, 196, 120, 36, stack_back_cb);
 
     lv_timer_create(sysinfo_stack_timer_cb, SYSINFO_REFRESH_MS, NULL);
 
@@ -594,21 +631,23 @@ static void about_back_cb(lv_event_t *e)
 
 lv_obj_t *ui_sysinfo_about_create(void)
 {
+    /* Landscape 320x240. */
     s_about_scr = lv_obj_create(NULL);
+    lv_obj_set_size(s_about_scr, 320, 240);
     lv_obj_set_style_bg_color(s_about_scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(s_about_scr);
     lv_label_set_text(title, "About");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
     char buf[48];
-    int y = 36;
+    int y = 28;
 
     /* IDF version (runtime, e.g. "v6.0.1") */
     const char *idf = esp_get_idf_version();
     lv_snprintf(buf, sizeof(buf), "%-10s %s", "IDF", idf ? idf : "?");
-    make_line(s_about_scr, buf, 0xCFCFCF, y);
+    make_line(s_about_scr, buf, 0xCFCFCF, 16, y);
     y += 18;
 
     /* Chip model + revision */
@@ -624,18 +663,18 @@ lv_obj_t *ui_sysinfo_about_create(void)
     default:                               break;
     }
     lv_snprintf(buf, sizeof(buf), "%-10s %s rev %d", "Chip", model, chip.revision);
-    make_line(s_about_scr, buf, 0xCFCFCF, y);
+    make_line(s_about_scr, buf, 0xCFCFCF, 16, y);
     y += 18;
 
     /* Cores + configured CPU frequency */
     lv_snprintf(buf, sizeof(buf), "%-10s %d x %d MHz", "Cores",
                 chip.cores, CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ);
-    make_line(s_about_scr, buf, 0xCFCFCF, y);
+    make_line(s_about_scr, buf, 0xCFCFCF, 16, y);
     y += 18;
 
     /* Flash size (from the flash-size sdkconfig option) */
     lv_snprintf(buf, sizeof(buf), "%-10s %s", "Flash", CONFIG_ESPTOOLPY_FLASHSIZE);
-    make_line(s_about_scr, buf, 0xCFCFCF, y);
+    make_line(s_about_scr, buf, 0xCFCFCF, 16, y);
     y += 18;
 
     /* PSRAM: physical/available size (esp_psram_get_size), shown with one
@@ -650,23 +689,23 @@ lv_obj_t *ui_sysinfo_about_create(void)
     } else {
         lv_snprintf(buf, sizeof(buf), "%-10s none", "PSRAM");
     }
-    make_line(s_about_scr, buf, 0xCFCFCF, y);
+    make_line(s_about_scr, buf, 0xCFCFCF, 16, y);
     y += 18;
 
     /* FreeRTOS kernel version, e.g. "V10.5.1" */
     lv_snprintf(buf, sizeof(buf), "%-10s %s", "FreeRTOS", tskKERNEL_VERSION_NUMBER);
-    make_line(s_about_scr, buf, 0xCFCFCF, y);
+    make_line(s_about_scr, buf, 0xCFCFCF, 16, y);
     y += 18;
 
     /* LVGL version */
     lv_snprintf(buf, sizeof(buf), "%-10s %d.%d.%d", "LVGL",
                 LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
-    make_line(s_about_scr, buf, 0xCFCFCF, y);
+    make_line(s_about_scr, buf, 0xCFCFCF, 16, y);
     y += 18;
 
     /* Build date/time of this firmware */
     lv_snprintf(buf, sizeof(buf), "%-10s %s %s", "Built", __DATE__, __TIME__);
-    make_line(s_about_scr, buf, 0xCFCFCF, y);
+    make_line(s_about_scr, buf, 0xCFCFCF, 16, y);
     y += 18;
 
     /* Station MAC address */
@@ -677,10 +716,10 @@ lv_obj_t *ui_sysinfo_about_create(void)
     } else {
         lv_snprintf(buf, sizeof(buf), "%-10s unavailable", "MAC");
     }
-    make_line(s_about_scr, buf, 0xCFCFCF, y);
+    make_line(s_about_scr, buf, 0xCFCFCF, 16, y);
     y += 18;
 
-    make_button(s_about_scr, "Back", 0x455A64, 60, 262, 120, 36, about_back_cb);
+    make_button(s_about_scr, "Back", 0x455A64, 100, 196, 120, 36, about_back_cb);
 
     return s_about_scr;
 }
