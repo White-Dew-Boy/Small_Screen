@@ -91,31 +91,33 @@ static void back_click_cb(lv_event_t *e)
 
 lv_obj_t *ui_mqtt_interval_create(void)
 {
+    /* Landscape 320x240, like the MQTT status page it belongs to. */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "Telemetry Interval");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
     /* Current value */
     s_value_label = lv_label_create(scr);
     s_cur_idx = find_step_index(mqtt_manager_get_interval());
     update_value_label();
     lv_obj_set_style_text_color(s_value_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(s_value_label, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_align(s_value_label, LV_ALIGN_CENTER, 0, -30);
 
     /* Message line */
     s_msg_label = lv_label_create(scr);
     lv_label_set_text(s_msg_label, "");
     lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xF44336), 0);
-    lv_obj_align(s_msg_label, LV_ALIGN_CENTER, 0, 20);
+    lv_obj_align(s_msg_label, LV_ALIGN_CENTER, 0, 25);
 
     /* Minus / Plus buttons */
     lv_obj_t *minus_btn = lv_btn_create(scr);
-    lv_obj_set_size(minus_btn, 80, 44);
-    lv_obj_align(minus_btn, LV_ALIGN_CENTER, -70, -20);
+    lv_obj_set_size(minus_btn, 90, 44);
+    lv_obj_align(minus_btn, LV_ALIGN_CENTER, -80, -30);
     lv_obj_set_style_bg_color(minus_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(minus_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *minus_label = lv_label_create(minus_btn);
@@ -124,8 +126,8 @@ lv_obj_t *ui_mqtt_interval_create(void)
     lv_obj_add_event_cb(minus_btn, minus_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *plus_btn = lv_btn_create(scr);
-    lv_obj_set_size(plus_btn, 80, 44);
-    lv_obj_align(plus_btn, LV_ALIGN_CENTER, 70, -20);
+    lv_obj_set_size(plus_btn, 90, 44);
+    lv_obj_align(plus_btn, LV_ALIGN_CENTER, 80, -30);
     lv_obj_set_style_bg_color(plus_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(plus_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *plus_label = lv_label_create(plus_btn);
@@ -135,7 +137,7 @@ lv_obj_t *ui_mqtt_interval_create(void)
 
     /* Save / Back buttons */
     lv_obj_t *save_btn = lv_btn_create(scr);
-    lv_obj_set_size(save_btn, 100, 36);
+    lv_obj_set_size(save_btn, 110, 36);
     lv_obj_align(save_btn, LV_ALIGN_BOTTOM_RIGHT, -12, -10);
     lv_obj_set_style_bg_color(save_btn, lv_color_hex(0x2E7D32), 0);
     lv_obj_set_style_text_color(save_btn, lv_color_hex(0xFFFFFF), 0);
@@ -145,7 +147,7 @@ lv_obj_t *ui_mqtt_interval_create(void)
     lv_obj_add_event_cb(save_btn, save_click_cb, LV_EVENT_CLICKED, NULL);
 
     s_back_btn = lv_btn_create(scr);
-    lv_obj_set_size(s_back_btn, 100, 36);
+    lv_obj_set_size(s_back_btn, 110, 36);
     lv_obj_align(s_back_btn, LV_ALIGN_BOTTOM_LEFT, 12, -10);
     lv_obj_set_style_bg_color(s_back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(s_back_btn, lv_color_hex(0xFFFFFF), 0);

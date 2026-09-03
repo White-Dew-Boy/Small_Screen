@@ -202,42 +202,48 @@ static void mqtt_display_timer_cb(lv_timer_t *timer)
  */
 lv_obj_t *ui_mqtt_create(void)
 {
+    /* Landscape 320x240, like the Home/PC-Perf pages: main.c rotates the
+     * whole display to landscape before this screen is loaded. */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "MQTT Status");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    /* Connection state (colored) */
+    /* Connection state + broker info (top area) */
     state_label = lv_label_create(scr);
     lv_label_set_text(state_label, "MQTT: Disconnected");
     lv_obj_set_style_text_color(state_label, lv_color_hex(0xF44336), 0);
-    lv_obj_align(state_label, LV_ALIGN_TOP_MID, 0, 34);
+    lv_obj_align(state_label, LV_ALIGN_TOP_MID, 0, 28);
 
     server_label = lv_label_create(scr);
     lv_obj_set_style_text_color(server_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(server_label, LV_ALIGN_TOP_LEFT, 12, 56);
+    lv_obj_align(server_label, LV_ALIGN_TOP_MID, 0, 52);
 
     device_label = lv_label_create(scr);
     lv_obj_set_style_text_color(device_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(device_label, LV_ALIGN_TOP_LEFT, 12, 78);
+    lv_obj_align(device_label, LV_ALIGN_TOP_MID, 0, 76);
 
     user_label = lv_label_create(scr);
     lv_obj_set_style_text_color(user_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(user_label, LV_ALIGN_TOP_LEFT, 12, 100);
+    lv_obj_align(user_label, LV_ALIGN_TOP_MID, 0, 100);
 
     /* Fill the broker info lines with the current config */
     update_broker_info();
 
-    /* Bottom action buttons (3 x 2):
+    /* Bottom action buttons (3 x 2 grid):
      *   Publish            | Subscribe
      *   History            | Config
      *   Connect/Disconnect | Interval    */
+    const lv_coord_t by = 138; /* grid top */
+    const lv_coord_t bw = 148, gap = 8;
+
     connect_btn = lv_btn_create(scr);
-    lv_obj_set_size(connect_btn, 102, 38);
-    lv_obj_align(connect_btn, LV_ALIGN_BOTTOM_LEFT, 12, -10);
+    lv_obj_set_size(connect_btn, bw, 30);
+    lv_obj_align(connect_btn, LV_ALIGN_TOP_LEFT, 12, by);
     lv_obj_set_style_bg_color(connect_btn, lv_color_hex(0x1565C0), 0);
     lv_obj_set_style_text_color(connect_btn, lv_color_hex(0xFFFFFF), 0);
     connect_btn_label = lv_label_create(connect_btn);
@@ -246,8 +252,8 @@ lv_obj_t *ui_mqtt_create(void)
     lv_obj_add_event_cb(connect_btn, connect_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *interval_btn = lv_btn_create(scr);
-    lv_obj_set_size(interval_btn, 102, 38);
-    lv_obj_align(interval_btn, LV_ALIGN_BOTTOM_RIGHT, -12, -10);
+    lv_obj_set_size(interval_btn, bw, 30);
+    lv_obj_align(interval_btn, LV_ALIGN_TOP_LEFT, 12 + bw + gap, by);
     lv_obj_set_style_bg_color(interval_btn, lv_color_hex(0x2E7D32), 0);
     lv_obj_set_style_text_color(interval_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *interval_label = lv_label_create(interval_btn);
@@ -256,8 +262,8 @@ lv_obj_t *ui_mqtt_create(void)
     lv_obj_add_event_cb(interval_btn, interval_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *history_btn = lv_btn_create(scr);
-    lv_obj_set_size(history_btn, 102, 38);
-    lv_obj_align(history_btn, LV_ALIGN_BOTTOM_LEFT, 12, -56);
+    lv_obj_set_size(history_btn, bw, 30);
+    lv_obj_align(history_btn, LV_ALIGN_TOP_LEFT, 12, by + 34);
     lv_obj_set_style_bg_color(history_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(history_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *history_label = lv_label_create(history_btn);
@@ -266,8 +272,8 @@ lv_obj_t *ui_mqtt_create(void)
     lv_obj_add_event_cb(history_btn, history_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *config_btn = lv_btn_create(scr);
-    lv_obj_set_size(config_btn, 102, 38);
-    lv_obj_align(config_btn, LV_ALIGN_BOTTOM_RIGHT, -12, -56);
+    lv_obj_set_size(config_btn, bw, 30);
+    lv_obj_align(config_btn, LV_ALIGN_TOP_LEFT, 12 + bw + gap, by + 34);
     lv_obj_set_style_bg_color(config_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(config_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *config_label = lv_label_create(config_btn);
@@ -276,8 +282,8 @@ lv_obj_t *ui_mqtt_create(void)
     lv_obj_add_event_cb(config_btn, config_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *pub_btn = lv_btn_create(scr);
-    lv_obj_set_size(pub_btn, 102, 38);
-    lv_obj_align(pub_btn, LV_ALIGN_BOTTOM_LEFT, 12, -102);
+    lv_obj_set_size(pub_btn, bw, 30);
+    lv_obj_align(pub_btn, LV_ALIGN_TOP_LEFT, 12, by + 68);
     lv_obj_set_style_bg_color(pub_btn, lv_color_hex(0x1565C0), 0);
     lv_obj_set_style_text_color(pub_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *pub_label = lv_label_create(pub_btn);
@@ -286,8 +292,8 @@ lv_obj_t *ui_mqtt_create(void)
     lv_obj_add_event_cb(pub_btn, pub_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *sub_btn = lv_btn_create(scr);
-    lv_obj_set_size(sub_btn, 102, 38);
-    lv_obj_align(sub_btn, LV_ALIGN_BOTTOM_RIGHT, -12, -102);
+    lv_obj_set_size(sub_btn, bw, 30);
+    lv_obj_align(sub_btn, LV_ALIGN_TOP_LEFT, 12 + bw + gap, by + 68);
     lv_obj_set_style_bg_color(sub_btn, lv_color_hex(0x00695C), 0);
     lv_obj_set_style_text_color(sub_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *sub_label = lv_label_create(sub_btn);

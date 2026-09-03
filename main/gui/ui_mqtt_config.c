@@ -71,7 +71,7 @@ static lv_obj_t *make_field(lv_obj_t *parent, const char *placeholder,
                             uint32_t max_len, bool password)
 {
     lv_obj_t *ta = lv_textarea_create(parent);
-    lv_obj_set_width(ta, 216);
+    lv_obj_set_width(ta, 280);
     lv_obj_set_height(ta, 30);
     lv_obj_set_style_bg_color(ta, lv_color_hex(0x1E242B), 0);
     lv_obj_set_style_text_color(ta, lv_color_hex(0xFFFFFF), 0);
@@ -210,18 +210,26 @@ static void kb_event_cb(lv_event_t *e)
 
 lv_obj_t *ui_mqtt_config_create(void)
 {
+    /* Landscape 320x240, like the MQTT status page it belongs to. */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "MQTT Config");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
+
+    /* Message line (errors / "Saved") below the title */
+    s_msg_label = lv_label_create(scr);
+    lv_label_set_text(s_msg_label, "");
+    lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xF44336), 0);
+    lv_obj_align(s_msg_label, LV_ALIGN_TOP_MID, 0, 22);
 
     /* Top action row: Back | SH/HD | Save */
     lv_obj_t *back_btn = lv_btn_create(scr);
-    lv_obj_set_size(back_btn, 70, 30);
-    lv_obj_align(back_btn, LV_ALIGN_TOP_LEFT, 10, 28);
+    lv_obj_set_size(back_btn, 96, 28);
+    lv_obj_align(back_btn, LV_ALIGN_TOP_LEFT, 12, 42);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *back_label = lv_label_create(back_btn);
@@ -230,8 +238,8 @@ lv_obj_t *ui_mqtt_config_create(void)
     lv_obj_add_event_cb(back_btn, back_click_cb, LV_EVENT_CLICKED, NULL);
 
     s_show_btn = lv_btn_create(scr);
-    lv_obj_set_size(s_show_btn, 70, 30);
-    lv_obj_align(s_show_btn, LV_ALIGN_TOP_MID, 0, 28);
+    lv_obj_set_size(s_show_btn, 96, 28);
+    lv_obj_align(s_show_btn, LV_ALIGN_TOP_MID, 0, 42);
     lv_obj_set_style_bg_color(s_show_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(s_show_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *show_label = lv_label_create(s_show_btn);
@@ -240,8 +248,8 @@ lv_obj_t *ui_mqtt_config_create(void)
     lv_obj_add_event_cb(s_show_btn, show_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *save_btn = lv_btn_create(scr);
-    lv_obj_set_size(save_btn, 70, 30);
-    lv_obj_align(save_btn, LV_ALIGN_TOP_RIGHT, -10, 28);
+    lv_obj_set_size(save_btn, 96, 28);
+    lv_obj_align(save_btn, LV_ALIGN_TOP_RIGHT, -12, 42);
     lv_obj_set_style_bg_color(save_btn, lv_color_hex(0x2E7D32), 0);
     lv_obj_set_style_text_color(save_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *save_label = lv_label_create(save_btn);
@@ -251,12 +259,12 @@ lv_obj_t *ui_mqtt_config_create(void)
 
     /* Field list (scrollable; keyboard stays fixed at the bottom) */
     s_field_list = lv_obj_create(scr);
-    lv_obj_set_size(s_field_list, 240, 130);
-    lv_obj_set_pos(s_field_list, 0, 66);
+    lv_obj_set_size(s_field_list, 296, 62);
+    lv_obj_set_pos(s_field_list, 12, 74);
     lv_obj_set_style_bg_color(s_field_list, lv_color_hex(0x101418), 0);
     lv_obj_set_style_border_width(s_field_list, 0, 0);
-    lv_obj_set_style_pad_all(s_field_list, 6, 0);
-    lv_obj_set_style_pad_row(s_field_list, 4, 0);
+    lv_obj_set_style_pad_all(s_field_list, 2, 0);
+    lv_obj_set_style_pad_row(s_field_list, 2, 0);
     lv_obj_set_scroll_dir(s_field_list, LV_DIR_VER);
     /* Stack the fields vertically (a plain lv_obj has no layout by
      * default, so children would all pile up at the origin) */
@@ -273,15 +281,9 @@ lv_obj_t *ui_mqtt_config_create(void)
     s_client_ta = make_field(s_field_list, "Client ID (empty = auto)", 47, false);
     s_keepalive_ta = make_field(s_field_list, "Keepalive s (0 = default 120)", 8, false);
 
-    /* Message line */
-    s_msg_label = lv_label_create(scr);
-    lv_label_set_text(s_msg_label, "");
-    lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xF44336), 0);
-    lv_obj_align(s_msg_label, LV_ALIGN_TOP_MID, 0, 198);
-
     /* On-screen keyboard (bottom), follows the focused field */
     s_kb = lv_keyboard_create(scr);
-    lv_obj_set_size(s_kb, 240, 120);
+    lv_obj_set_size(s_kb, 320, 100);
     lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_keyboard_set_textarea(s_kb, s_scheme_ta);
     lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);

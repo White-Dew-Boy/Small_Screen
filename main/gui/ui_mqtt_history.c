@@ -69,25 +69,27 @@ static void history_timer_cb(lv_timer_t *timer)
 
 lv_obj_t *ui_mqtt_history_create(void)
 {
+    /* Landscape 320x240, like the MQTT status page it belongs to. */
     lv_obj_t *scr = lv_obj_create(NULL);
     s_scr = scr;
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "MQTT History");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
     /* Publish counter */
     s_count_label = lv_label_create(scr);
     lv_label_set_text(s_count_label, "Published: 0 msg(s)");
     lv_obj_set_style_text_color(s_count_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(s_count_label, LV_ALIGN_TOP_MID, 0, 36);
+    lv_obj_align(s_count_label, LV_ALIGN_TOP_MID, 0, 30);
 
     /* Command history list */
     s_list = lv_list_create(scr);
-    lv_obj_set_size(s_list, 240, 200);
-    lv_obj_align(s_list, LV_ALIGN_TOP_MID, 0, 62);
+    lv_obj_set_size(s_list, 296, 142);
+    lv_obj_align(s_list, LV_ALIGN_TOP_MID, 0, 52);
     lv_obj_set_style_bg_color(s_list, lv_color_hex(0x1E242B), 0);
     lv_obj_set_style_border_color(s_list, lv_color_hex(0x3A444E), 0);
     lv_obj_set_style_pad_all(s_list, 4, 0);
@@ -96,7 +98,7 @@ lv_obj_t *ui_mqtt_history_create(void)
     /* Back button */
     s_back_btn = lv_btn_create(scr);
     lv_obj_set_size(s_back_btn, 100, 36);
-    lv_obj_align(s_back_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_align(s_back_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_obj_set_style_bg_color(s_back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(s_back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *back_label = lv_label_create(s_back_btn);
