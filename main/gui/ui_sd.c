@@ -181,7 +181,10 @@ static void upload_poll_timer_cb(lv_timer_t *timer)
 
 lv_obj_t *ui_sd_create(void)
 {
+    /* Landscape 320x240, like the Home/PC-Perf pages: main.c rotates the
+     * whole display to landscape before this screen is loaded. */
     s_scr = lv_obj_create(NULL);
+    lv_obj_set_size(s_scr, 320, 240);
     lv_obj_set_style_bg_color(s_scr, lv_color_hex(0x101418), 0);
 
     /* The default LVGL theme renders text in gray — set white explicitly
@@ -189,29 +192,30 @@ lv_obj_t *ui_sd_create(void)
     lv_obj_t *title = lv_label_create(s_scr);
     lv_label_set_text(title, "SD Card");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
     status_label = lv_label_create(s_scr);
     lv_label_set_text(status_label, "Checking...");
     lv_obj_set_style_text_color(status_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(status_label, LV_ALIGN_CENTER, 0, -28);
+    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 30);
 
     info_label = lv_label_create(s_scr);
     lv_label_set_text(info_label, "");
     lv_obj_set_style_text_color(info_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(info_label, LV_ALIGN_CENTER, 0, 2);
+    lv_obj_align(info_label, LV_ALIGN_TOP_MID, 0, 54);
 
     /* Upload server status line (IP/port or transfer progress) */
     s_server_label = lv_label_create(s_scr);
     lv_label_set_text(s_server_label, "Upload server: off");
     lv_obj_set_style_text_color(s_server_label, lv_color_hex(0x8A94A0), 0);
     lv_obj_set_style_text_font(s_server_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(s_server_label, LV_ALIGN_CENTER, 0, 32);
+    lv_obj_align(s_server_label, LV_ALIGN_TOP_MID, 0, 76);
 
-    /* Open the SD picture slideshow (240x320 .bin files) */
+    /* Open the SD picture slideshow (the gallery itself stays portrait;
+     * main.c switches back before loading it). */
     lv_obj_t *gallery_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(gallery_btn, 120, 36);
-    lv_obj_align(gallery_btn, LV_ALIGN_CENTER, 0, 62);
+    lv_obj_set_size(gallery_btn, 296, 42);
+    lv_obj_align(gallery_btn, LV_ALIGN_TOP_MID, 0, 104);
     lv_obj_set_style_bg_color(gallery_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(gallery_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *gallery_label = lv_label_create(gallery_btn);
@@ -221,8 +225,8 @@ lv_obj_t *ui_sd_create(void)
 
     /* Open the file browser (shows "No SD card" inside if none mounted) */
     lv_obj_t *browse_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(browse_btn, 104, 36);
-    lv_obj_align(browse_btn, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+    lv_obj_set_size(browse_btn, 144, 44);
+    lv_obj_align(browse_btn, LV_ALIGN_TOP_LEFT, 12, 164);
     lv_obj_set_style_bg_color(browse_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(browse_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *browse_label = lv_label_create(browse_btn);
@@ -232,8 +236,8 @@ lv_obj_t *ui_sd_create(void)
 
     /* Toggle the HTTP upload/download server */
     s_upload_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(s_upload_btn, 104, 36);
-    lv_obj_align(s_upload_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+    lv_obj_set_size(s_upload_btn, 144, 44);
+    lv_obj_align(s_upload_btn, LV_ALIGN_TOP_RIGHT, -12, 164);
     lv_obj_set_style_bg_color(s_upload_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(s_upload_btn, lv_color_hex(0xFFFFFF), 0);
     s_upload_btn_label = lv_label_create(s_upload_btn);

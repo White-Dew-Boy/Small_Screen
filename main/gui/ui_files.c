@@ -213,13 +213,15 @@ void ui_files_refresh(void)
 
 lv_obj_t *ui_files_create(void)
 {
+    /* Landscape 320x240, like the SD Card page it belongs to. */
     s_scr = lv_obj_create(NULL);
+    lv_obj_set_size(s_scr, 320, 240);
     lv_obj_set_style_bg_color(s_scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(s_scr);
     lv_label_set_text(title, "SD Files");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
     /* Current directory, truncated with "..." when too long */
     s_path_label = lv_label_create(s_scr);
@@ -227,29 +229,29 @@ lv_obj_t *ui_files_create(void)
     lv_obj_set_style_text_color(s_path_label, lv_color_hex(0x8A94A0), 0);
     lv_obj_set_style_text_font(s_path_label, &lv_font_montserrat_12, 0);
     lv_label_set_long_mode(s_path_label, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(s_path_label, 216);
-    lv_obj_align(s_path_label, LV_ALIGN_TOP_LEFT, 12, 28);
+    lv_obj_set_width(s_path_label, 296);
+    lv_obj_align(s_path_label, LV_ALIGN_TOP_LEFT, 12, 26);
 
-    /* Scrollable file list */
+    /* Scrollable file list (fills the middle) */
     s_list = lv_list_create(s_scr);
-    lv_obj_set_size(s_list, 228, 210);
+    lv_obj_set_size(s_list, 296, 130);
     lv_obj_set_style_bg_color(s_list, lv_color_hex(0x161B22), 0);
     lv_obj_set_style_border_width(s_list, 0, 0);
     lv_obj_set_style_radius(s_list, 0, 0);
     lv_obj_set_style_pad_all(s_list, 0, 0);
-    lv_obj_align(s_list, LV_ALIGN_TOP_LEFT, 6, 46);
+    lv_obj_align(s_list, LV_ALIGN_TOP_LEFT, 12, 44);
 
     /* Info bar (item count / selected file details) */
     s_info_label = lv_label_create(s_scr);
     lv_label_set_text(s_info_label, "");
     lv_obj_set_style_text_color(s_info_label, lv_color_hex(0x8A94A0), 0);
     lv_obj_set_style_text_font(s_info_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(s_info_label, LV_ALIGN_TOP_MID, 0, 258);
+    lv_obj_align(s_info_label, LV_ALIGN_TOP_LEFT, 12, 178);
 
     /* Delete (disabled until a file is selected) + Back buttons */
     s_delete_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(s_delete_btn, 90, 32);
-    lv_obj_align(s_delete_btn, LV_ALIGN_BOTTOM_LEFT, 10, -8);
+    lv_obj_set_size(s_delete_btn, 100, 34);
+    lv_obj_align(s_delete_btn, LV_ALIGN_BOTTOM_LEFT, 12, -8);
     lv_obj_set_style_bg_color(s_delete_btn, lv_color_hex(0x7A3238), 0);
     lv_obj_set_style_bg_color(s_delete_btn, lv_color_hex(0x2A323A),
                               LV_STATE_DISABLED);
@@ -261,8 +263,8 @@ lv_obj_t *ui_files_create(void)
     lv_obj_add_state(s_delete_btn, LV_STATE_DISABLED);
 
     lv_obj_t *back_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(back_btn, 90, 32);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_RIGHT, -10, -8);
+    lv_obj_set_size(back_btn, 100, 34);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_RIGHT, -12, -8);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *back_label = lv_label_create(back_btn);

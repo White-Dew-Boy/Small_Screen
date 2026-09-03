@@ -15,8 +15,8 @@
 #endif
 
 #define GALLERY_MAX_PICS     64
-#define PIC_W                240
-#define PIC_H                320
+#define PIC_W                320
+#define PIC_H                240
 #define PIC_BYTES            (PIC_W * PIC_H * 2) /* 153,600 */
 #define SLIDESHOW_PERIOD_MS  10000
 
@@ -32,7 +32,7 @@ static int s_cur = 0;
 static uint8_t *s_buf = NULL;   /* 150 KB frame buffer (PSRAM) */
 static lv_img_dsc_t s_dsc;      /* descriptor pointing at s_buf */
 
-/* A gallery picture is a 240x320 raw RGB565 dump (.bin, exact size). */
+/* A gallery picture is a 320x240 raw RGB565 dump (.bin, exact size). */
 static bool is_picture(const sd_file_entry_t *e)
 {
     size_t n = strlen(e->name);
@@ -101,7 +101,7 @@ static void slideshow_timer_cb(lv_timer_t *timer)
 
 void ui_gallery_refresh(void)
 {
-    /* Re-scan the upload dir for 240x320 .bin pictures. */
+    /* Re-scan the upload dir for 320x240 .bin pictures. */
     static sd_file_entry_t entries[GALLERY_MAX_PICS]; /* not on LVGL stack */
     s_pic_count = 0;
     s_cur = 0;
@@ -129,7 +129,10 @@ void ui_gallery_refresh(void)
 
 lv_obj_t *ui_gallery_create(void)
 {
+    /* Landscape 320x240, like every other page now (pictures must be
+     * generated with: convert.py --raw -w 320 -H 240). */
     s_scr = lv_obj_create(NULL);
+    lv_obj_set_size(s_scr, 320, 240);
     lv_obj_set_style_bg_color(s_scr, lv_color_hex(0x000000), 0);
 
     /* 150 KB frame buffer; PSRAM first (plenty free), internal RAM as a
