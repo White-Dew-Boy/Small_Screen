@@ -33,8 +33,8 @@ void ui_home_set_page_cb(void (*cb)(int page));
 void ui_home_set_deepsleep_cb(void (*cb)(void));
 
 /**
- * @brief Reset the deep-sleep press counter and restore the default
- *        bottom hint. Call when the page is re-shown (e.g. KEY3 back to
- *        Home) so stale "Press N more to sleep" text clears.
+ * @brief Reset the deep-sleep press counter. Call when the page is
+ *        re-shown (e.g. KEY3 back to Home) so a stale partial press
+ *        sequence doesn't carry over into the next visit.
  */
 void ui_home_reset_hint(void);
