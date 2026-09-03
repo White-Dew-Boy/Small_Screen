@@ -95,16 +95,20 @@ static uint32_t bar_color(float pct)
 }
 
 /*---------------------------------------------------------------------------
- * Widget building
+ * Widget building (landscape 320x240 layout)
+ *
+ * Row layout (150 x 46): metric name top-left, value top-right on the same
+ * line, and (for bar rows) a full-width bar below. Name and value never
+ * overlap (both on the top line, left vs right); the bar starts below the
+ * text line, so nothing can collide.
  *---------------------------------------------------------------------------*/
 
-/* One usage row: name label, horizontal bar, right-aligned value label.
- * Returns the row container and the bar/value widgets through out. */
+/* One usage row: name + value on top, full-width bar underneath. */
 static lv_obj_t *make_bar_row(lv_obj_t *body, const char *name,
                               lv_obj_t **out_bar, lv_obj_t **out_val)
 {
     lv_obj_t *row = lv_obj_create(body);
-    lv_obj_set_size(row, 232, 32);
+    lv_obj_set_size(row, 150, 46);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
@@ -113,32 +117,32 @@ static lv_obj_t *make_bar_row(lv_obj_t *body, const char *name,
     lv_obj_t *name_lbl = lv_label_create(row);
     lv_label_set_text(name_lbl, name);
     lv_obj_set_style_text_color(name_lbl, lv_color_hex(0x8AB4F8), 0);
-    lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 0, 0);
-
-    lv_obj_t *bar = lv_bar_create(row);
-    lv_obj_set_size(bar, 96, 14);
-    lv_obj_align(bar, LV_ALIGN_LEFT_MID, 62, 0);
-    lv_bar_set_range(bar, 0, BAR_MAX);
-    lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_radius(bar, 7, 0);
-    lv_obj_set_style_radius(bar, 7, LV_PART_INDICATOR);
+    lv_obj_align(name_lbl, LV_ALIGN_TOP_LEFT, 0, 2);
 
     lv_obj_t *val = lv_label_create(row);
     lv_label_set_text(val, "--");
     lv_obj_set_style_text_color(val, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(val, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(val, LV_ALIGN_TOP_RIGHT, 0, 2);
+
+    lv_obj_t *bar = lv_bar_create(row);
+    lv_obj_set_size(bar, 146, 12);
+    lv_obj_align(bar, LV_ALIGN_TOP_LEFT, 0, 24);
+    lv_bar_set_range(bar, 0, BAR_MAX);
+    lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+    lv_obj_set_style_radius(bar, 6, 0);
+    lv_obj_set_style_radius(bar, 6, LV_PART_INDICATOR);
 
     *out_bar = bar;
     *out_val = val;
     return row;
 }
 
-/* One plain value row: name left, value right. Returns the row and value. */
+/* One plain value row: name left, value right (no bar). */
 static lv_obj_t *make_text_row(lv_obj_t *body, const char *name,
                                lv_obj_t **out_val)
 {
     lv_obj_t *row = lv_obj_create(body);
-    lv_obj_set_size(row, 232, 28);
+    lv_obj_set_size(row, 150, 46);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
@@ -147,12 +151,12 @@ static lv_obj_t *make_text_row(lv_obj_t *body, const char *name,
     lv_obj_t *name_lbl = lv_label_create(row);
     lv_label_set_text(name_lbl, name);
     lv_obj_set_style_text_color(name_lbl, lv_color_hex(0x8AB4F8), 0);
-    lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_align(name_lbl, LV_ALIGN_TOP_LEFT, 0, 2);
 
     lv_obj_t *val = lv_label_create(row);
     lv_label_set_text(val, "--");
     lv_obj_set_style_text_color(val, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(val, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(val, LV_ALIGN_TOP_RIGHT, 0, 2);
 
     *out_val = val;
     return row;
@@ -311,41 +315,60 @@ static void pc_perf_timer_cb(lv_timer_t *timer)
 
 lv_obj_t *ui_pc_perf_create(void)
 {
+    /* The page is shown in LANDSCAPE (320x240); main.c calls
+     * lv_port_set_landscape(true) and resizes this screen before loading. */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
     s_scr = scr;
 
     lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "PC Perf");
+    lv_label_set_text(title, "PC Performance");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
 
     s_status_lbl = lv_label_create(scr);
     lv_label_set_text(s_status_lbl, "BLE: waiting for PC...");
     lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_status_lbl, LV_ALIGN_TOP_MID, 0, 36);
+    lv_obj_align(s_status_lbl, LV_ALIGN_TOP_MID, 0, 22);
 
-    /* Rows stack in a flex column; hidden optional rows collapse. */
-    lv_obj_t *body = lv_obj_create(scr);
-    lv_obj_set_size(body, 240, 260);
-    lv_obj_align(body, LV_ALIGN_TOP_MID, 0, 54);
-    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(body, 0, 0);
-    lv_obj_set_style_pad_all(body, 0, 0);
-    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+    /* Two side-by-side flex columns; hidden optional rows collapse.
+     * 4 rows x 46 px + 3 x 2 px gaps = 190 px, starting at y=42. */
+    lv_obj_t *left = lv_obj_create(scr);
+    lv_obj_set_size(left, 150, 190);
+    lv_obj_align(left, LV_ALIGN_TOP_LEFT, 8, 42);
+    lv_obj_set_style_bg_opa(left, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(left, 0, 0);
+    lv_obj_set_style_pad_all(left, 0, 0);
+    lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(left, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(body, 6, 0);
+    lv_obj_set_style_pad_row(left, 2, 0);
 
-    make_bar_row(body, "CPU", &s_cpu_bar, &s_cpu_val);
-    make_bar_row(body, "Memory", &s_mem_bar, &s_mem_val);
-    s_gpu_row = make_bar_row(body, "GPU", &s_gpu_bar, &s_gpu_val);
-    s_disk_row = make_bar_row(body, "Disk", &s_disk_bar, &s_disk_val);
-    make_text_row(body, "Upload", &s_up_val);
-    make_text_row(body, "Download", &s_down_val);
-    s_temp_row = make_text_row(body, "CPU Temp", &s_temp_val);
-    s_fps_row = make_text_row(body, "FPS", &s_fps_val);
+    lv_obj_t *right = lv_obj_create(scr);
+    lv_obj_set_size(right, 150, 190);
+    lv_obj_align(right, LV_ALIGN_TOP_RIGHT, -8, 42);
+    lv_obj_set_style_bg_opa(right, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(right, 0, 0);
+    lv_obj_set_style_pad_all(right, 0, 0);
+    lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(right, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(right, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(right, 2, 0);
+
+    /* Left column: usage bars */
+    make_bar_row(left, "CPU", &s_cpu_bar, &s_cpu_val);
+    make_bar_row(left, "Memory", &s_mem_bar, &s_mem_val);
+    s_gpu_row = make_bar_row(left, "GPU", &s_gpu_bar, &s_gpu_val);
+    s_disk_row = make_bar_row(left, "Disk", &s_disk_bar, &s_disk_val);
+
+    /* Right column: speeds + optional values */
+    make_text_row(right, "Upload", &s_up_val);
+    make_text_row(right, "Download", &s_down_val);
+    s_temp_row = make_text_row(right, "CPU Temp", &s_temp_val);
+    s_fps_row = make_text_row(right, "FPS", &s_fps_val);
 
     lv_timer_create(pc_perf_timer_cb, PC_PERF_REFRESH_MS, NULL);
 
