@@ -99,6 +99,38 @@ typedef enum {
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
+/* Human-readable switch request name (diagnostics) */
+static const char *switch_req_name(switch_req_t req)
+{
+    switch (req) {
+    case SWITCH_HOME:          return "HOME";
+    case SWITCH_SHTC3:         return "SHTC3";
+    case SWITCH_ACCEL:         return "ACCEL";
+    case SWITCH_GYRO:          return "GYRO";
+    case SWITCH_WIFI:          return "WIFI";
+    case SWITCH_SAVED_WIFI:    return "SAVED_WIFI";
+    case SWITCH_NEARBY_WIFI:   return "NEARBY_WIFI";
+    case SWITCH_MQTT:          return "MQTT";
+    case SWITCH_MQTT_INTERVAL: return "MQTT_INTERVAL";
+    case SWITCH_MQTT_HISTORY:  return "MQTT_HISTORY";
+    case SWITCH_MQTT_CONFIG:   return "MQTT_CONFIG";
+    case SWITCH_MQTT_PUB:      return "MQTT_PUB";
+    case SWITCH_MQTT_SUB:      return "MQTT_SUB";
+    case SWITCH_LED:           return "LED";
+    case SWITCH_LED_PRESET:    return "LED_PRESET";
+    case SWITCH_LED_CUSTOM:    return "LED_CUSTOM";
+    case SWITCH_SD:            return "SD";
+    case SWITCH_SD_FILES:      return "SD_FILES";
+    case SWITCH_GALLERY:       return "GALLERY";
+    case SWITCH_SYSINFO:       return "SYSINFO";
+    case SWITCH_SYSINFO_CPU:   return "SYSINFO_CPU";
+    case SWITCH_SYSINFO_STACK: return "SYSINFO_STACK";
+    case SWITCH_SYSINFO_ABOUT: return "SYSINFO_ABOUT";
+    case SWITCH_PC_PERF:       return "PC_PERF";
+    default:                   return "?";
+    }
+}
+
 /* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT,
  * 3 = LED, 4 = SD, 5 = SYSINFO, 6 = PC PERF). Shared with the sub-page
  * callbacks so the cycle stays in sync (they return to their parent page). */
@@ -299,7 +331,20 @@ static void lvgl_task(void *arg)
         switch_req_t req = s_switch_req;
         if (req != SWITCH_NONE) {
             s_switch_req = SWITCH_NONE;
-            if (req == SWITCH_HOME) {
+
+            /* Every page is landscape (320x240) now — the whole UI runs
+             * rotated. Rotate the display to landscape on every switch
+             * (lv_disp_set_rotation for coherent LVGL state + hardware
+             * MADCTL rotation of the panel; lv_disp_drv_update resizes
+             * every screen automatically). */
+            esp_err_t rot = lv_port_set_landscape(true);
+            if (rot != ESP_OK) {
+                ESP_LOGE(TAG, "landscape switch failed: %s",
+                         esp_err_to_name(rot));
+            }
+            if (req == SWITCH_PC_PERF) {
+                lv_scr_load(scr_pc_perf);
+            } else if (req == SWITCH_HOME) {
                 ui_home_reset_hint(); /* clear stale press-count text */
                 lv_scr_load(scr_home);
             } else if (req == SWITCH_SHTC3) {
@@ -308,6 +353,12 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_accel);
             } else if (req == SWITCH_GYRO) {
                 lv_scr_load(scr_gyro);
+            } else if (req == SWITCH_LED) {
+                lv_scr_load(scr_led);
+            } else if (req == SWITCH_LED_PRESET) {
+                lv_scr_load(scr_led_preset);
+            } else if (req == SWITCH_LED_CUSTOM) {
+                lv_scr_load(scr_led_custom);
             } else if (req == SWITCH_WIFI) {
                 lv_scr_load(scr_wifi);
             } else if (req == SWITCH_SAVED_WIFI) {
@@ -326,18 +377,10 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_mqtt_pub);
             } else if (req == SWITCH_MQTT_SUB) {
                 lv_scr_load(scr_mqtt_sub);
-            } else if (req == SWITCH_LED) {
-                lv_scr_load(scr_led);
-            } else if (req == SWITCH_LED_PRESET) {
-                lv_scr_load(scr_led_preset);
-            } else if (req == SWITCH_LED_CUSTOM) {
-                lv_scr_load(scr_led_custom);
             } else if (req == SWITCH_SD) {
                 lv_scr_load(scr_sd);
             } else if (req == SWITCH_SD_FILES) {
                 lv_scr_load(scr_sd_files);
-            } else if (req == SWITCH_GALLERY) {
-                lv_scr_load(scr_gallery);
             } else if (req == SWITCH_SYSINFO) {
                 lv_scr_load(scr_sysinfo);
             } else if (req == SWITCH_SYSINFO_CPU) {
@@ -346,9 +389,14 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_sysinfo_stack);
             } else if (req == SWITCH_SYSINFO_ABOUT) {
                 lv_scr_load(scr_sysinfo_about);
-            } else if (req == SWITCH_PC_PERF) {
-                lv_scr_load(scr_pc_perf);
+            } else if (req == SWITCH_GALLERY) {
+                lv_scr_load(scr_gallery);
             }
+
+            /* All pages are landscape now (320x240), so the resolution no
+             * longer changes between page switches; the invalidate below is
+             * kept as a cheap safety net for a clean full redraw. */
+            lv_obj_invalidate(lv_scr_act());
         }
 
         lv_timer_handler();
@@ -403,6 +451,7 @@ static void shtc3_task(void *arg)
 
     uint16_t raw_humi = 0, raw_temp = 0;
     float humi = 0.0f, temp = 0.0f;
+    uint32_t ok_loops = 0; /* successful reads; 2 s each -> 30 = 60 s */
 
     while (1) {
         esp_err_t read_ret = shtc3_getdata(&raw_humi, &raw_temp);
@@ -411,13 +460,18 @@ static void shtc3_task(void *arg)
             ui_sensor_set_invalid();
         } else {
             shtc3_caculate_data(&raw_humi, &raw_temp, &humi, &temp);
-            ESP_LOGI(TAG, "SHTC3 data - Temperature: %.2f C, Humidity: %.2f %%RH", temp, humi);
 
             /* Publish to the LVGL thread (LVGL is not thread-safe) */
             ui_sensor_set_data(temp, humi);
 
             /* Publish to the MQTT broker (rate-limited internally) */
             mqtt_manager_publish_telemetry(temp, humi);
+
+            /* Heartbeat: one log per 60 s to prove the system is alive */
+            if ((++ok_loops % 30) == 0) {
+                ESP_LOGI(TAG, "System alive - Temperature: %.2f C, Humidity: %.2f %%RH",
+                         temp, humi);
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(2000));
@@ -564,6 +618,14 @@ void app_main(void)
     scr_sysinfo_stack = ui_sysinfo_stack_create();
     scr_sysinfo_about = ui_sysinfo_about_create();
     scr_pc_perf = ui_pc_perf_create();
+
+    // Home menu is landscape (320x240), like PC-Perf: rotate the display
+    // before showing it at boot.
+    esp_err_t boot_rot = lv_port_set_landscape(true);
+    if (boot_rot != ESP_OK) {
+        ESP_LOGE(TAG, "boot landscape switch failed: %s",
+                 esp_err_to_name(boot_rot));
+    }
     lv_scr_load(scr_home);
 
     // Home menu entries -> pages; deep sleep button (implemented in power.c)
