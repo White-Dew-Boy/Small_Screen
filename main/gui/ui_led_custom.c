@@ -66,27 +66,29 @@ static void back_click_cb(lv_event_t *e)
 
 lv_obj_t *ui_led_custom_create(void)
 {
+    /* Landscape 320x240 (matches the LED Control page it belongs to) */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "Custom RGB");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
     const char ch_names[3] = { 'R', 'G', 'B' };
 
     for (int ch = 0; ch < 3; ch++) {
-        int y = 60 + ch * 56;
+        int y = 52 + ch * 52;
 
         lv_obj_t *ch_label = lv_label_create(scr);
         lv_label_set_text_fmt(ch_label, "%c", ch_names[ch]);
         lv_obj_set_style_text_color(ch_label, lv_color_hex(0xFFFFFF), 0);
-        lv_obj_align(ch_label, LV_ALIGN_TOP_LEFT, 14, y + 8);
+        lv_obj_align(ch_label, LV_ALIGN_TOP_LEFT, 30, y + 8);
 
         s_sliders[ch] = lv_slider_create(scr);
-        lv_obj_set_size(s_sliders[ch], 160, 18);
-        lv_obj_align(s_sliders[ch], LV_ALIGN_TOP_LEFT, 30, y + 4);
+        lv_obj_set_size(s_sliders[ch], 200, 18);
+        lv_obj_align(s_sliders[ch], LV_ALIGN_TOP_LEFT, 56, y + 4);
         lv_slider_set_range(s_sliders[ch], 0, 255);
         lv_slider_set_value(s_sliders[ch], 0, LV_ANIM_OFF);
         lv_obj_add_event_cb(s_sliders[ch], slider_cb, LV_EVENT_VALUE_CHANGED,
@@ -95,7 +97,7 @@ lv_obj_t *ui_led_custom_create(void)
         s_val_labels[ch] = lv_label_create(scr);
         lv_label_set_text(s_val_labels[ch], "0");
         lv_obj_set_style_text_color(s_val_labels[ch], lv_color_hex(0xFFFFFF), 0);
-        lv_obj_align(s_val_labels[ch], LV_ALIGN_TOP_LEFT, 198, y + 8);
+        lv_obj_align(s_val_labels[ch], LV_ALIGN_TOP_LEFT, 270, y + 8);
     }
 
     /* Load the current target color once at creation, and again on every
@@ -105,7 +107,7 @@ lv_obj_t *ui_led_custom_create(void)
     /* Back button */
     lv_obj_t *back_btn = lv_btn_create(scr);
     lv_obj_set_size(back_btn, 100, 36);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *back_label = lv_label_create(back_btn);

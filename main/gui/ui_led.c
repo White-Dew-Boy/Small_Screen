@@ -135,13 +135,13 @@ void ui_led_get_rgb(int *r, int *g, int *b)
 
 /* ============================ UI callbacks ============================ */
 
-/* Refresh the three per-LED status lines and the target highlight. */
+/* Refresh the per-LED value labels (the "LED1".. name rows above them are
+ * static) and the target highlight. */
 static void update_ui(void)
 {
     for (int i = 0; i < RGB_LED_NUM; i++) {
-        lv_label_set_text_fmt(s_led_labels[i],
-                              "LED%d: %d,%d,%d  %d%%",
-                              i + 1, s_led_r[i], s_led_g[i], s_led_b[i],
+        lv_label_set_text_fmt(s_led_labels[i], "%d,%d,%d   %d%%",
+                              s_led_r[i], s_led_g[i], s_led_b[i],
                               s_bri[i]);
     }
 
@@ -229,7 +229,16 @@ static void led_refresh_timer_cb(lv_timer_t *timer)
 
 lv_obj_t *ui_led_create(void)
 {
+    /* Landscape 320x240, like the Home/PC-Perf pages: main.c rotates the
+     * whole display to landscape before this screen is loaded.
+     * Five stacked rows:
+     *   1. LED1..LED3 info side by side (name + RGB/brightness, 12 px)
+     *   2. target buttons: LED1 | LED2 | LED3 | ALL
+     *   3. brightness slider (as wide as possible)
+     *   4. Preset Colors | Custom RGB
+     *   5. Turn Off All (full width) */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
@@ -237,23 +246,32 @@ lv_obj_t *ui_led_create(void)
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    /* Per-LED status lines first: LED1..LED3 color + brightness */
+    /* Row 1: per-LED info in three columns (96 px wide each) */
     for (int i = 0; i < RGB_LED_NUM; i++) {
+        lv_coord_t x = 8 + i * 104;
+
+        lv_obj_t *name = lv_label_create(scr);
+        lv_label_set_text_fmt(name, "LED%d", i + 1);
+        lv_obj_set_style_text_color(name, lv_color_hex(0x8AB4F8), 0);
+        lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
+        lv_obj_align(name, LV_ALIGN_TOP_LEFT, x, 24);
+
         s_led_labels[i] = lv_label_create(scr);
-        lv_label_set_text_fmt(s_led_labels[i], "LED%d: 0,0,0  100%%", i + 1);
+        lv_label_set_text_fmt(s_led_labels[i], "0,0,0   100%%");
         lv_obj_set_style_text_color(s_led_labels[i], lv_color_hex(0xFFFFFF), 0);
-        lv_obj_align(s_led_labels[i], LV_ALIGN_TOP_LEFT, 12, 30 + i * 20);
+        lv_obj_set_style_text_font(s_led_labels[i], &lv_font_montserrat_12, 0);
+        lv_obj_align(s_led_labels[i], LV_ALIGN_TOP_LEFT, x, 42);
     }
 
-    /* Target selection row: LED1 | LED2 | LED3 | ALL */
+    /* Row 2: target selection buttons (LED1 | LED2 | LED3 | ALL) */
     const char *targets[4] = { "LED1", "LED2", "LED3", "ALL" };
     for (int i = 0; i < 4; i++) {
         s_led_btns[i] = lv_btn_create(scr);
-        lv_obj_set_size(s_led_btns[i], 48, 30);
-        lv_obj_align(s_led_btns[i], LV_ALIGN_TOP_LEFT,
-                     10 + i * 56, 92);
+        lv_obj_set_size(s_led_btns[i], 71, 30);
+        lv_obj_align(s_led_btns[i], LV_ALIGN_TOP_LEFT, 8 + i * 77, 62);
         lv_obj_set_style_bg_color(s_led_btns[i], lv_color_hex(0x2A323A), 0);
         lv_obj_set_style_text_color(s_led_btns[i], lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_font(s_led_btns[i], &lv_font_montserrat_12, 0);
         lv_obj_t *lbl = lv_label_create(s_led_btns[i]);
         lv_label_set_text(lbl, targets[i]);
         lv_obj_center(lbl);
@@ -261,24 +279,28 @@ lv_obj_t *ui_led_create(void)
                             (void *)(intptr_t)i);
     }
 
-    /* Brightness slider (applied to the selected target in real time) */
+    /* Row 3: brightness slider (applied to the selected target live).
+     * Label sits above the slider; the slider itself spans almost the full
+     * width but keeps its right end ~32 px off the screen edge, so the
+     * touch panel can still reach the 100 % end reliably. */
     lv_obj_t *bri_label = lv_label_create(scr);
-    lv_label_set_text(bri_label, "Brightness:");
+    lv_label_set_text(bri_label, "Brightness");
     lv_obj_set_style_text_color(bri_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(bri_label, LV_ALIGN_TOP_LEFT, 12, 134);
+    lv_obj_set_style_text_font(bri_label, &lv_font_montserrat_12, 0);
+    lv_obj_align(bri_label, LV_ALIGN_TOP_LEFT, 8, 96);
 
     s_bri_slider = lv_slider_create(scr);
-    lv_obj_set_size(s_bri_slider, 216, 18);
-    lv_obj_align(s_bri_slider, LV_ALIGN_TOP_LEFT, 12, 150);
+    lv_obj_set_size(s_bri_slider, 280, 16);
+    lv_obj_align(s_bri_slider, LV_ALIGN_TOP_LEFT, 8, 112);
     lv_slider_set_range(s_bri_slider, 0, 100); /* 5% steps, 0..100 */
     lv_slider_set_value(s_bri_slider, s_bri[0], LV_ANIM_OFF);
     lv_obj_add_event_cb(s_bri_slider, bri_slider_cb, LV_EVENT_VALUE_CHANGED,
                         NULL);
 
-    /* Entry buttons for the color sub-pages */
+    /* Row 4: Preset Colors | Custom RGB (side by side) */
     lv_obj_t *preset_btn = lv_btn_create(scr);
-    lv_obj_set_size(preset_btn, 104, 40);
-    lv_obj_align(preset_btn, LV_ALIGN_TOP_LEFT, 12, 190);
+    lv_obj_set_size(preset_btn, 148, 36);
+    lv_obj_align(preset_btn, LV_ALIGN_TOP_LEFT, 8, 138);
     lv_obj_set_style_bg_color(preset_btn, lv_color_hex(0x1565C0), 0);
     lv_obj_set_style_text_color(preset_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *preset_label = lv_label_create(preset_btn);
@@ -287,8 +309,8 @@ lv_obj_t *ui_led_create(void)
     lv_obj_add_event_cb(preset_btn, preset_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *custom_btn = lv_btn_create(scr);
-    lv_obj_set_size(custom_btn, 104, 40);
-    lv_obj_align(custom_btn, LV_ALIGN_TOP_RIGHT, -12, 190);
+    lv_obj_set_size(custom_btn, 148, 36);
+    lv_obj_align(custom_btn, LV_ALIGN_TOP_LEFT, 164, 138);
     lv_obj_set_style_bg_color(custom_btn, lv_color_hex(0x2E7D32), 0);
     lv_obj_set_style_text_color(custom_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *custom_label = lv_label_create(custom_btn);
@@ -296,10 +318,10 @@ lv_obj_t *ui_led_create(void)
     lv_obj_center(custom_label);
     lv_obj_add_event_cb(custom_btn, custom_click_cb, LV_EVENT_CLICKED, NULL);
 
-    /* One-tap turn off all LEDs */
+    /* Row 5: one-tap turn off all LEDs (full width) */
     lv_obj_t *off_btn = lv_btn_create(scr);
-    lv_obj_set_size(off_btn, 216, 40);
-    lv_obj_align(off_btn, LV_ALIGN_TOP_MID, 0, 238);
+    lv_obj_set_size(off_btn, 304, 40);
+    lv_obj_align(off_btn, LV_ALIGN_TOP_MID, 0, 186);
     lv_obj_set_style_bg_color(off_btn, lv_color_hex(0xC62828), 0);
     lv_obj_set_style_text_color(off_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *off_label = lv_label_create(off_btn);

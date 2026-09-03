@@ -49,21 +49,23 @@ static void back_click_cb(lv_event_t *e)
 
 lv_obj_t *ui_led_preset_create(void)
 {
+    /* Landscape 320x240 (matches the LED Control page it belongs to) */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "Preset Colors");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
-    /* Color buttons: 4 columns x 2 rows */
+    /* Color buttons: 4 columns x 2 rows across the wide screen */
     for (int i = 0; i < (int)COLOR_COUNT; i++) {
         int col = i % 4;
         int row = i / 4;
         lv_obj_t *btn = lv_btn_create(scr);
-        lv_obj_set_size(btn, 52, 52);
-        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 10 + col * 58, 50 + row * 60);
+        lv_obj_set_size(btn, 68, 68);
+        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 10 + col * 78, 46 + row * 80);
         lv_obj_set_style_bg_color(btn, lv_color_make(s_colors[i].r,
                                                      s_colors[i].g,
                                                      s_colors[i].b), 0);
@@ -78,7 +80,7 @@ lv_obj_t *ui_led_preset_create(void)
     /* Back button */
     lv_obj_t *back_btn = lv_btn_create(scr);
     lv_obj_set_size(back_btn, 100, 36);
-    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_align(back_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *back_label = lv_label_create(back_btn);
