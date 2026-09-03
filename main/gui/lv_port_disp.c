@@ -138,5 +138,17 @@ esp_err_t lv_port_disp_init(void)
     disp_drv.user_data = panel_handle;
     lv_disp_drv_register(&disp_drv);
 
+    /* Landscape (320x240) is the default orientation of this UI. Rotating
+     * right after registration makes it the startup state, so screens are
+     * created at the wide size from the beginning (no post-boot switch
+     * needed in main.c). lv_port_set_landscape() is intentionally kept
+     * intact below so portrait (240x320) remains available on demand. */
+    esp_err_t rot = lv_port_set_landscape(true);
+    if (rot != ESP_OK) {
+        ESP_LOGE(TAG, "default landscape rotation failed: %s",
+                 esp_err_to_name(rot));
+        return rot;
+    }
+
     return ESP_OK;
 }

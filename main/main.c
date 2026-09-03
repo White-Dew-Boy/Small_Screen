@@ -99,38 +99,6 @@ typedef enum {
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
-/* Human-readable switch request name (diagnostics) */
-static const char *switch_req_name(switch_req_t req)
-{
-    switch (req) {
-    case SWITCH_HOME:          return "HOME";
-    case SWITCH_SHTC3:         return "SHTC3";
-    case SWITCH_ACCEL:         return "ACCEL";
-    case SWITCH_GYRO:          return "GYRO";
-    case SWITCH_WIFI:          return "WIFI";
-    case SWITCH_SAVED_WIFI:    return "SAVED_WIFI";
-    case SWITCH_NEARBY_WIFI:   return "NEARBY_WIFI";
-    case SWITCH_MQTT:          return "MQTT";
-    case SWITCH_MQTT_INTERVAL: return "MQTT_INTERVAL";
-    case SWITCH_MQTT_HISTORY:  return "MQTT_HISTORY";
-    case SWITCH_MQTT_CONFIG:   return "MQTT_CONFIG";
-    case SWITCH_MQTT_PUB:      return "MQTT_PUB";
-    case SWITCH_MQTT_SUB:      return "MQTT_SUB";
-    case SWITCH_LED:           return "LED";
-    case SWITCH_LED_PRESET:    return "LED_PRESET";
-    case SWITCH_LED_CUSTOM:    return "LED_CUSTOM";
-    case SWITCH_SD:            return "SD";
-    case SWITCH_SD_FILES:      return "SD_FILES";
-    case SWITCH_GALLERY:       return "GALLERY";
-    case SWITCH_SYSINFO:       return "SYSINFO";
-    case SWITCH_SYSINFO_CPU:   return "SYSINFO_CPU";
-    case SWITCH_SYSINFO_STACK: return "SYSINFO_STACK";
-    case SWITCH_SYSINFO_ABOUT: return "SYSINFO_ABOUT";
-    case SWITCH_PC_PERF:       return "PC_PERF";
-    default:                   return "?";
-    }
-}
-
 /* Current page index of the KEY2 cycle (0 = SHTC3, 1 = WIFI, 2 = MQTT,
  * 3 = LED, 4 = SD, 5 = SYSINFO, 6 = PC PERF). Shared with the sub-page
  * callbacks so the cycle stays in sync (they return to their parent page). */
@@ -619,13 +587,9 @@ void app_main(void)
     scr_sysinfo_about = ui_sysinfo_about_create();
     scr_pc_perf = ui_pc_perf_create();
 
-    // Home menu is landscape (320x240), like PC-Perf: rotate the display
-    // before showing it at boot.
-    esp_err_t boot_rot = lv_port_set_landscape(true);
-    if (boot_rot != ESP_OK) {
-        ESP_LOGE(TAG, "boot landscape switch failed: %s",
-                 esp_err_to_name(boot_rot));
-    }
+    // Display is already landscape by default: lv_port_disp_init() rotates
+    // to 320x240 during registration, so screens are created wide from the
+    // start (portrait stays available via lv_port_set_landscape(false)).
     lv_scr_load(scr_home);
 
     // Home menu entries -> pages; deep sleep button (implemented in power.c)
