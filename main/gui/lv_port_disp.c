@@ -2,6 +2,7 @@
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_check.h"
 #include "lcd_driver.h"
 
 static const char *TAG = "lv_port_disp";
@@ -45,6 +46,76 @@ esp_err_t lv_port_tick_init(void)
     esp_timer_handle_t tick_timer = NULL;
     ESP_ERROR_CHECK(esp_timer_create(&tick_timer_args, &tick_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(tick_timer, 1000));
+    return ESP_OK;
+}
+
+/* Landscape (320x240): used by the PC-Perf page.
+ *
+ * Two complementary halves:
+ *  1. lv_disp_set_rotation(LV_DISP_ROT_90) keeps LVGL's state coherent:
+ *     it swaps the logical resolution, resizes every screen and resets the
+ *     invalidation areas via lv_disp_drv_update(). (Poking driver->hor_res
+ *     directly instead left the refresh geometry stale - flush areas came
+ *     out ~245 px wide and the right side of the page never rendered.)
+ *  2. The ILI9341 panel is rotated in hardware via MADCTL (swap_xy +
+ *     mirror), zero CPU cost.
+ *  sw_rotate stays 0 on purpose: LVGL 8's software pixel rotation only runs
+ *  when rotated != NONE && sw_rotate, and with our partial draw buffer it
+ *  garbles the image. With sw_rotate = 0 the flush callback receives the
+ *  UNROTATED logical pixels + coordinates, which the hardware-rotated panel
+ *  maps correctly.
+ *
+ * Mirror combo for landscape (VERIFIED on this panel): portrait uses
+ * mirror(true,false); with swap_xy(true) this panel needs:
+ *   LV_DISP_ROT_90  -> mirror(true,true)   (one landscape direction)
+ *   LV_DISP_ROT_270 -> mirror(false,false) (the other direction, 180 deg)
+ * The two must stay consistent: LVGL rotates the touch coordinates
+ * according to LANDSCAPE_ROTATION, and the panel mirror has to show the
+ * image the way LVGL assumes. */
+#define LANDSCAPE_ROTATION LV_DISP_ROT_270
+#define LANDSCAPE_MIRROR_X false
+#define LANDSCAPE_MIRROR_Y false
+
+esp_err_t lv_port_set_landscape(bool landscape)
+{
+    lv_disp_t *disp = lv_disp_get_default();
+    if (disp == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* No-op if the orientation did not actually change (e.g. switching
+     * between two portrait pages) - keeps the log free of noise and makes
+     * a real orientation switch obvious. */
+    lv_disp_rot_t target = landscape ? LANDSCAPE_ROTATION : LV_DISP_ROT_NONE;
+    if (lv_disp_get_rotation(disp) == target) {
+        return ESP_OK;
+    }
+
+    /* Coherent LVGL state (resolution, screen sizes, invalidation areas) */
+    lv_disp_set_rotation(disp, target);
+
+    /* Hardware rotation of the panel (MADCTL MV + mirror) */
+    esp_err_t r1, r2;
+    if (landscape) {
+        r1 = esp_lcd_panel_swap_xy(panel_handle, true);
+        r2 = esp_lcd_panel_mirror(panel_handle, LANDSCAPE_MIRROR_X,
+                                  LANDSCAPE_MIRROR_Y);
+    } else {
+        r1 = esp_lcd_panel_swap_xy(panel_handle, false);
+        r2 = esp_lcd_panel_mirror(panel_handle, true, false);
+    }
+
+    if (r1 != ESP_OK || r2 != ESP_OK) {
+        ESP_LOGE(TAG, "panel rotate failed: swap=%s mirror=%s",
+                 esp_err_to_name(r1), esp_err_to_name(r2));
+        return (r1 != ESP_OK) ? r1 : r2;
+    }
+
+    ESP_LOGI(TAG, "display switched to %dx%d (%s)",
+             lv_disp_get_hor_res(disp), lv_disp_get_ver_res(disp),
+             landscape ? "landscape" : "portrait");
+
+    lv_obj_invalidate(lv_disp_get_scr_act(disp));
     return ESP_OK;
 }
 
