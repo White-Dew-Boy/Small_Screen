@@ -81,21 +81,25 @@ static void back_click_cb(lv_event_t *e)
 
 lv_obj_t *ui_accel_create(void)
 {
+    /* Landscape 320x240, like the Sensor page it belongs to. */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "Acceleration");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    ax_val = make_row(scr, "Ax", -60);
-    ay_val = make_row(scr, "Ay", -25);
-    az_val = make_row(scr, "Az",  10);
+    /* Rows are full-width name/value lines; y_off is relative to the
+     * vertical middle (120 in landscape). */
+    ax_val = make_row(scr, "Ax", -45);
+    ay_val = make_row(scr, "Ay",   0);
+    az_val = make_row(scr, "Az",  45);
 
     lv_obj_t *back_btn = lv_btn_create(scr);
-    lv_obj_set_size(back_btn, 120, 40);
-    lv_obj_align(back_btn, LV_ALIGN_TOP_MID, 0, 235);
+    lv_obj_set_size(back_btn, 140, 40);
+    lv_obj_align(back_btn, LV_ALIGN_TOP_MID, 0, 186);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x1565C0), 0);
     lv_obj_set_style_text_color(back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *back_label = lv_label_create(back_btn);

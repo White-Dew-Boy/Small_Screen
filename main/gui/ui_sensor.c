@@ -134,7 +134,10 @@ static void gyro_click_cb(lv_event_t *e)
  */
 lv_obj_t *ui_sensor_create(void)
 {
+    /* Landscape 320x240, like the Home/PC-Perf pages: main.c rotates the
+     * whole display to landscape before this screen is loaded. */
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_size(scr, 320, 240);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     /* The default LVGL theme renders text in gray — set white explicitly
@@ -142,22 +145,24 @@ lv_obj_t *ui_sensor_create(void)
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "Sensor");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    /* SHTC3 rows */
-    temp_val = make_row(scr, "Temperature", -110);
-    humi_val = make_row(scr, "Humidity",    -80);
+    /* Data rows are full-width name/value lines. y_off is relative to the
+     * screen's vertical middle (120 in landscape); rows step 26 px:
+     * 6 rows span y=48..178, leaving the bottom strip for the buttons. */
+    temp_val = make_row(scr, "Temperature", -72);
+    humi_val = make_row(scr, "Humidity",    -46);
 
     /* JY901S rows */
-    imu_temp_val = make_row(scr, "IMU Temp",  -50);
-    roll_val     = make_row(scr, "Roll",      -20);
-    pitch_val    = make_row(scr, "Pitch",      10);
-    yaw_val      = make_row(scr, "Yaw",        40);
+    imu_temp_val = make_row(scr, "IMU Temp",  -20);
+    roll_val     = make_row(scr, "Roll",        6);
+    pitch_val    = make_row(scr, "Pitch",      32);
+    yaw_val      = make_row(scr, "Yaw",        58);
 
-    /* Sub-page entry buttons */
+    /* Sub-page entry buttons (bottom corners) */
     lv_obj_t *accel_btn = lv_btn_create(scr);
-    lv_obj_set_size(accel_btn, 104, 40);
-    lv_obj_align(accel_btn, LV_ALIGN_TOP_LEFT, 12, 225);
+    lv_obj_set_size(accel_btn, 140, 40);
+    lv_obj_align(accel_btn, LV_ALIGN_TOP_LEFT, 12, 190);
     lv_obj_set_style_bg_color(accel_btn, lv_color_hex(0x1565C0), 0);
     lv_obj_set_style_text_color(accel_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *accel_label = lv_label_create(accel_btn);
@@ -166,8 +171,8 @@ lv_obj_t *ui_sensor_create(void)
     lv_obj_add_event_cb(accel_btn, accel_click_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *gyro_btn = lv_btn_create(scr);
-    lv_obj_set_size(gyro_btn, 104, 40);
-    lv_obj_align(gyro_btn, LV_ALIGN_TOP_RIGHT, -12, 225);
+    lv_obj_set_size(gyro_btn, 140, 40);
+    lv_obj_align(gyro_btn, LV_ALIGN_TOP_RIGHT, -12, 190);
     lv_obj_set_style_bg_color(gyro_btn, lv_color_hex(0x2E7D32), 0);
     lv_obj_set_style_text_color(gyro_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *gyro_label = lv_label_create(gyro_btn);
