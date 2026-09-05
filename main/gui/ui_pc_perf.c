@@ -1,6 +1,8 @@
 #include "ui_pc_perf.h"
 #include "lvgl.h"
 #include "ble_perf.h"
+#include "pc_perf_mqtt.h"
+#include "pc_perf_src.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <stdio.h>
@@ -24,9 +26,6 @@ static const char *TAG = "ui_pc_perf";
 
 static lv_obj_t *s_scr = NULL;
 
-/* Status line (connection + data age) */
-static lv_obj_t *s_status_lbl;
-
 /* Bar rows: name + bar + value label */
 static lv_obj_t *s_cpu_bar, *s_cpu_val;
 static lv_obj_t *s_mem_bar, *s_mem_val;
@@ -45,8 +44,13 @@ static lv_obj_t *s_disk_row;
 static lv_obj_t *s_temp_row;
 static lv_obj_t *s_fps_row;
 
-/* Lazy BLE start flag (set on first visible timer tick) */
+/* BLE started flag. NimBLE needs a lot of RAM, so it is never started at
+ * boot; in BLE data-source mode it starts once, the first time this page is
+ * shown (a few hundred ms of LVGL-task blocking, see pc_perf_timer_cb). */
 static bool s_ble_started = false;
+
+/* Top-right "Config" button -> Config page (wired by main.c) */
+static void (*s_cfg_cb)(void) = NULL;
 
 /*---------------------------------------------------------------------------
  * Helpers
@@ -97,10 +101,14 @@ static uint32_t bar_color(float pct)
 /*---------------------------------------------------------------------------
  * Widget building (landscape 320x240 layout)
  *
- * Row layout (150 x 46): metric name top-left, value top-right on the same
- * line, and (for bar rows) a full-width bar below. Name and value never
- * overlap (both on the top line, left vs right); the bar starts below the
- * text line, so nothing can collide.
+ * Bar rows (150 x 46): metric name top-left, value top-right on the same
+ * line, and a full-width bar below. Name and value never overlap (both on
+ * the top line, left vs right); the bar starts below the text line, so
+ * nothing can collide.
+ *
+ * Plain text rows (150 x 22): only a name + value line — deliberately half
+ * the height of a bar row so stacked rows like Upload/Download sit close
+ * together without a blank line between them.
  *---------------------------------------------------------------------------*/
 
 /* One usage row: name + value on top, full-width bar underneath. */
@@ -137,12 +145,13 @@ static lv_obj_t *make_bar_row(lv_obj_t *body, const char *name,
     return row;
 }
 
-/* One plain value row: name left, value right (no bar). */
+/* One plain value row: name left, value right (no bar). Half-height so
+ * stacked rows (Upload/Download/…) sit close together. */
 static lv_obj_t *make_text_row(lv_obj_t *body, const char *name,
                                lv_obj_t **out_val)
 {
     lv_obj_t *row = lv_obj_create(body);
-    lv_obj_set_size(row, 150, 46);
+    lv_obj_set_size(row, 150, 22);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
@@ -197,51 +206,35 @@ static void set_optional(lv_obj_t *row, lv_obj_t *val_lbl, bool present,
     }
 }
 
-static void pc_perf_timer_cb(lv_timer_t *timer)
+/*---------------------------------------------------------------------------
+ * Rendering + refresh
+ *---------------------------------------------------------------------------*/
+
+/* True when the last frame carried valid data for `bit` (PC_PERF_P_*). */
+static bool field_present(const pc_perf_data_t *d, uint8_t bit)
 {
-    (void)timer;
+    return d != NULL && (d->present & bit) != 0;
+}
 
-    if (s_scr == NULL || lv_disp_get_scr_act(NULL) != s_scr) {
-        return; /* page not visible */
-    }
-
-    /* Lazy BLE start: internal RAM is too tight to run NimBLE at boot, so
-     * the peripheral (re)starts the first time this page is shown. One-time
-     * (~a few hundred ms of LVGL-task blocking), then advertising runs. */
-    if (!s_ble_started) {
-        s_ble_started = true;
-        esp_err_t r = pc_perf_init();
-        if (r != ESP_OK) {
-            ESP_LOGE(TAG, "pc_perf_init failed: %s", esp_err_to_name(r));
-        }
-    }
-
-    pc_perf_data_t d;
-    pc_perf_get_data(&d);
-
-    const bool fresh = d.valid &&
-                       ((uint32_t)(esp_timer_get_time() / 1000) - d.last_update_ms) < PC_PERF_STALE_MS;
-
-    /* Status line */
-    if (!d.connected) {
-        lv_label_set_text(s_status_lbl, "BLE: waiting for PC...");
-        lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(0x9E9E9E), 0);
-    } else if (!fresh) {
-        lv_label_set_text(s_status_lbl, "BLE: connected, no fresh data");
-        lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(0xFFB300), 0);
-    } else {
-        uint32_t age = (uint32_t)(esp_timer_get_time() / 1000) - d.last_update_ms;
-        lv_label_set_text_fmt(s_status_lbl, "BLE: connected (%lu s ago)",
-                              (unsigned long)(age / 1000));
-        lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(0x66BB6A), 0);
-    }
-
-    if (!d.valid || !fresh) {
-        /* No usable data yet: zero the bars, dash the values */
+/* Render the metric rows from snapshot `d`. Display is presence-driven
+ * (v2 BLE protocol): a field whose flag bit is 0 has no data and must not
+ * be shown — 0 itself is a legal measured value. With fresh data the real
+ * values are shown; otherwise (NULL, stale or no link) bars are zeroed and
+ * values dashed. Rows for fields that were present before stay visible
+ * with "--"; rows for absent fields stay hidden. */
+static void render_rows(pc_perf_data_t *d, bool fresh)
+{
+    if (d == NULL || !fresh) {
+        /* No usable data: zero ALL bars (incl. the optional GPU/disk ones,
+         * which keep their last value otherwise) and dash the values */
         lv_bar_set_value(s_cpu_bar, 0, LV_ANIM_OFF);
         lv_bar_set_value(s_mem_bar, 0, LV_ANIM_OFF);
+        lv_bar_set_value(s_gpu_bar, 0, LV_ANIM_OFF);
+        lv_bar_set_value(s_disk_bar, 0, LV_ANIM_OFF);
         lv_obj_set_style_bg_color(s_cpu_bar, lv_color_hex(0x43A047), LV_PART_INDICATOR);
         lv_obj_set_style_bg_color(s_mem_bar, lv_color_hex(0x43A047), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(s_gpu_bar, lv_color_hex(0x43A047), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(s_disk_bar, lv_color_hex(0x43A047), LV_PART_INDICATOR);
         lv_label_set_text(s_cpu_val, "--");
         lv_label_set_text(s_mem_val, "--");
         lv_label_set_text(s_up_val, "--");
@@ -250,63 +243,194 @@ static void pc_perf_timer_cb(lv_timer_t *timer)
         lv_obj_set_style_text_color(s_mem_val, lv_color_hex(0x757575), 0);
         lv_obj_set_style_text_color(s_up_val, lv_color_hex(0x757575), 0);
         lv_obj_set_style_text_color(s_down_val, lv_color_hex(0x757575), 0);
-        set_optional(s_gpu_row, s_gpu_val, d.gpu_pct > 0.1f, "--");
-        set_optional(s_disk_row, s_disk_val, d.disk_pct > 0.1f, "--");
-        set_optional(s_temp_row, s_temp_val, d.temp_c > 0.1f, "--");
-        set_optional(s_fps_row, s_fps_val, d.fps > 0.1f, "--");
+        set_optional(s_gpu_row, s_gpu_val, field_present(d, PC_PERF_P_GPU), "--");
+        set_optional(s_disk_row, s_disk_val, field_present(d, PC_PERF_P_DISK), "--");
+        set_optional(s_temp_row, s_temp_val, field_present(d, PC_PERF_P_TEMP), "--");
+        set_optional(s_fps_row, s_fps_val, field_present(d, PC_PERF_P_FPS), "--");
         return;
     }
 
-    /* Usage bars */
+    /* Fresh data from snapshot `d` */
     int vi, fr;
     char txt[VAL_BUF];
 
-    split1(d.cpu_pct, &vi, &fr);
-    snprintf(txt, sizeof(txt), "%d.%d%%", vi, fr);
-    set_bar(s_cpu_bar, s_cpu_val, d.cpu_pct, txt, fresh);
-
-    split1(d.mem_pct, &vi, &fr);
-    snprintf(txt, sizeof(txt), "%d.%d%%", vi, fr);
-    set_bar(s_mem_bar, s_mem_val, d.mem_pct, txt, fresh);
-
-    /* GPU / disk: only if the sender reports them */
-    if (d.gpu_pct > 0.1f) {
-        split1(d.gpu_pct, &vi, &fr);
+    /* CPU / memory: shown whenever reported; 0 is a legal value. */
+    if (field_present(d, PC_PERF_P_CPU)) {
+        split1(d->cpu_pct, &vi, &fr);
         snprintf(txt, sizeof(txt), "%d.%d%%", vi, fr);
-        set_bar(s_gpu_bar, s_gpu_val, d.gpu_pct, txt, fresh);
+        set_bar(s_cpu_bar, s_cpu_val, d->cpu_pct, txt, fresh);
+    } else {
+        lv_bar_set_value(s_cpu_bar, 0, LV_ANIM_OFF);
+        lv_label_set_text(s_cpu_val, "--");
+        lv_obj_set_style_text_color(s_cpu_val, lv_color_hex(0x757575), 0);
     }
-    set_optional(s_gpu_row, s_gpu_val, d.gpu_pct > 0.1f, txt);
 
-    if (d.disk_pct > 0.1f) {
-        split1(d.disk_pct, &vi, &fr);
+    if (field_present(d, PC_PERF_P_MEM)) {
+        split1(d->mem_pct, &vi, &fr);
         snprintf(txt, sizeof(txt), "%d.%d%%", vi, fr);
-        set_bar(s_disk_bar, s_disk_val, d.disk_pct, txt, fresh);
+        set_bar(s_mem_bar, s_mem_val, d->mem_pct, txt, fresh);
+    } else {
+        lv_bar_set_value(s_mem_bar, 0, LV_ANIM_OFF);
+        lv_label_set_text(s_mem_val, "--");
+        lv_obj_set_style_text_color(s_mem_val, lv_color_hex(0x757575), 0);
     }
-    set_optional(s_disk_row, s_disk_val, d.disk_pct > 0.1f, txt);
+
+    /* GPU / disk rows: presence-driven. When the flag bit is 0 the raw
+     * value is meaningless: hide the row and clear its bar. */
+    if (field_present(d, PC_PERF_P_GPU)) {
+        split1(d->gpu_pct, &vi, &fr);
+        snprintf(txt, sizeof(txt), "%d.%d%%", vi, fr);
+        set_bar(s_gpu_bar, s_gpu_val, d->gpu_pct, txt, fresh);
+        lv_obj_clear_flag(s_gpu_row, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_bar_set_value(s_gpu_bar, 0, LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(s_gpu_bar, lv_color_hex(0x43A047), LV_PART_INDICATOR);
+        lv_obj_add_flag(s_gpu_row, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (field_present(d, PC_PERF_P_DISK)) {
+        split1(d->disk_pct, &vi, &fr);
+        snprintf(txt, sizeof(txt), "%d.%d%%", vi, fr);
+        set_bar(s_disk_bar, s_disk_val, d->disk_pct, txt, fresh);
+        lv_obj_clear_flag(s_disk_row, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_bar_set_value(s_disk_bar, 0, LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(s_disk_bar, lv_color_hex(0x43A047), LV_PART_INDICATOR);
+        lv_obj_add_flag(s_disk_row, LV_OBJ_FLAG_HIDDEN);
+    }
 
     /* Upload / download speeds (KB/s, two decimals to keep slow links
      * readable, e.g. 0.44 KB/s) */
-    split2(d.up_kbs, &vi, &fr);
-    snprintf(txt, sizeof(txt), "%d.%02d KB/s", vi, fr);
-    lv_label_set_text(s_up_val, txt);
-    lv_obj_set_style_text_color(s_up_val, fresh ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x757575), 0);
+    if (field_present(d, PC_PERF_P_UP)) {
+        split2(d->up_kbs, &vi, &fr);
+        snprintf(txt, sizeof(txt), "%d.%02d KB/s", vi, fr);
+        lv_label_set_text(s_up_val, txt);
+        lv_obj_set_style_text_color(s_up_val, lv_color_hex(0xFFFFFF), 0);
+    } else {
+        lv_label_set_text(s_up_val, "--");
+        lv_obj_set_style_text_color(s_up_val, lv_color_hex(0x757575), 0);
+    }
 
-    split2(d.down_kbs, &vi, &fr);
-    snprintf(txt, sizeof(txt), "%d.%02d KB/s", vi, fr);
-    lv_label_set_text(s_down_val, txt);
-    lv_obj_set_style_text_color(s_down_val, fresh ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x757575), 0);
+    if (field_present(d, PC_PERF_P_DOWN)) {
+        split2(d->down_kbs, &vi, &fr);
+        snprintf(txt, sizeof(txt), "%d.%02d KB/s", vi, fr);
+        lv_label_set_text(s_down_val, txt);
+        lv_obj_set_style_text_color(s_down_val, lv_color_hex(0xFFFFFF), 0);
+    } else {
+        lv_label_set_text(s_down_val, "--");
+        lv_obj_set_style_text_color(s_down_val, lv_color_hex(0x757575), 0);
+    }
 
-    /* Optional: CPU temperature / FPS */
-    if (d.temp_c > 0.1f) {
-        split1(d.temp_c, &vi, &fr);
+    /* Optional text rows: CPU temperature (may be negative) / FPS */
+    if (field_present(d, PC_PERF_P_TEMP)) {
+        split1(d->temp_c, &vi, &fr);
         snprintf(txt, sizeof(txt), "%d.%d C", vi, fr);
+        lv_label_set_text(s_temp_val, txt);
+        lv_obj_set_style_text_color(s_temp_val, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_clear_flag(s_temp_row, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_temp_row, LV_OBJ_FLAG_HIDDEN);
     }
-    set_optional(s_temp_row, s_temp_val, d.temp_c > 0.1f, txt);
 
-    if (d.fps > 0.1f) {
-        snprintf(txt, sizeof(txt), "%d", (int)d.fps);
+    if (field_present(d, PC_PERF_P_FPS)) {
+        snprintf(txt, sizeof(txt), "%d", (int)d->fps);
+        lv_label_set_text(s_fps_val, txt);
+        lv_obj_set_style_text_color(s_fps_val, lv_color_hex(0xFFFFFF), 0);
+        lv_obj_clear_flag(s_fps_row, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_fps_row, LV_OBJ_FLAG_HIDDEN);
     }
-    set_optional(s_fps_row, s_fps_val, d.fps > 0.1f, txt);
+}
+
+static void pc_perf_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+
+    if (s_scr == NULL || lv_disp_get_scr_act(NULL) != s_scr) {
+        /* Page not visible. Keep the link while the source is BLE, but
+         * stop the connectable advertising so the radio does not beacon
+         * while nobody is watching (advertising resumes when this page is
+         * shown again in BLE mode). When the source is NOT BLE, also
+         * terminate an established BLE link so the PC sees the disconnect.
+         */
+        if (s_ble_started) {
+            pc_perf_advertise_stop();
+            if (pc_perf_src_get() != PC_PERF_SRC_BLE) {
+                pc_perf_disconnect();
+            }
+        }
+        return;
+    }
+
+    const uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+
+    switch (pc_perf_src_get()) {
+    case PC_PERF_SRC_OFF:
+        /* Never beacon when the source is off, and drop an established
+         * BLE link so the PC sees the disconnect. */
+        pc_perf_disconnect();
+        pc_perf_advertise_stop();
+        render_rows(NULL, false);
+        return;
+
+    case PC_PERF_SRC_BLE: {
+        /* BLE transport only. NimBLE needs a lot of RAM, so it is NOT
+         * started at boot: it starts once, the first time this page is
+         * shown (a few hundred ms of LVGL-task blocking), then advertises
+         * until a PC connects. Link state is shown on the Config page. */
+        if (!s_ble_started) {
+            s_ble_started = true;
+            esp_err_t r = pc_perf_init();
+            if (r != ESP_OK) {
+                ESP_LOGE(TAG, "pc_perf_init failed: %s", esp_err_to_name(r));
+            }
+        }
+        /* Beacon while this page is visible so the PC can find/connect.
+         * pc_perf_advertise_start() is a no-op when the host is not synced
+         * yet, a PC is already connected, or advertising already runs. */
+        pc_perf_advertise_start();
+
+        pc_perf_data_t ble;
+        pc_perf_get_data(&ble);
+        const bool fresh = ble.connected && ble.valid &&
+                           (now_ms - ble.last_update_ms) < PC_PERF_STALE_MS;
+        render_rows(&ble, fresh);
+        return;
+    }
+
+    case PC_PERF_SRC_MQTT:
+    default: {
+        /* MQTT transport only (the default). BLE is never started here;
+         * if it was started earlier (source changed), stop beaconing and
+         * disconnect an established link. Link state is on the Config page. */
+        pc_perf_disconnect();
+        pc_perf_advertise_stop();
+        pc_perf_data_t mq;
+        pc_perf_mqtt_get_data(&mq); /* connected = broker link up */
+        const bool fresh = mq.connected && mq.valid &&
+                           (now_ms - mq.last_update_ms) < PC_PERF_STALE_MS;
+        render_rows(&mq, fresh);
+        return;
+    }
+    }
+}
+
+/*---------------------------------------------------------------------------
+ * Public API
+ *---------------------------------------------------------------------------*/
+
+void ui_pc_perf_set_cfg_cb(void (*cb)(void))
+{
+    s_cfg_cb = cb;
+}
+
+/* Top-right "Config" button pressed -> Config page (LVGL thread) */
+static void cfg_btn_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_cfg_cb != NULL) {
+        s_cfg_cb();
+    }
 }
 
 /*---------------------------------------------------------------------------
@@ -325,12 +449,22 @@ lv_obj_t *ui_pc_perf_create(void)
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "PC Performance");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    /* Left-aligned: a 20 px centered title would run into the top-right
+     * Config button. */
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 6);
 
-    s_status_lbl = lv_label_create(scr);
-    lv_label_set_text(s_status_lbl, "BLE: waiting for PC...");
-    lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_status_lbl, LV_ALIGN_TOP_MID, 0, 22);
+    /* Top-right button: open the Config page (data source + link state).
+     * Sized for comfortable touch (92x36). */
+    lv_obj_t *cfg_btn = lv_btn_create(scr);
+    lv_obj_set_size(cfg_btn, 92, 36);
+    lv_obj_align(cfg_btn, LV_ALIGN_TOP_RIGHT, -8, 4);
+    lv_obj_set_style_bg_color(cfg_btn, lv_color_hex(0x2A323A), 0);
+    lv_obj_set_style_text_color(cfg_btn, lv_color_hex(0x8AB4F8), 0);
+    lv_obj_t *cfg_label = lv_label_create(cfg_btn);
+    lv_label_set_text(cfg_label, "Config");
+    lv_obj_center(cfg_label);
+    lv_obj_add_event_cb(cfg_btn, cfg_btn_cb, LV_EVENT_CLICKED, NULL);
 
     /* Two side-by-side flex columns; hidden optional rows collapse.
      * 4 rows x 46 px + 3 x 2 px gaps = 190 px, starting at y=42. */
@@ -365,8 +499,8 @@ lv_obj_t *ui_pc_perf_create(void)
     s_disk_row = make_bar_row(left, "Disk", &s_disk_bar, &s_disk_val);
 
     /* Right column: speeds + optional values */
-    make_text_row(right, "Upload", &s_up_val);
-    make_text_row(right, "Download", &s_down_val);
+    make_text_row(right, "Up", &s_up_val);
+    make_text_row(right, "Down", &s_down_val);
     s_temp_row = make_text_row(right, "CPU Temp", &s_temp_val);
     s_fps_row = make_text_row(right, "FPS", &s_fps_val);
 

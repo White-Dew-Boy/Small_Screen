@@ -18,6 +18,7 @@
 #include "drivers/time_manager.h"
 #include "drivers/jy901s.h"
 #include "drivers/ble_perf.h"
+#include "drivers/pc_perf_mqtt.h"
 #include "ui_sensor.h"
 #include "ui_accel.h"
 #include "ui_gyro.h"
@@ -39,6 +40,7 @@
 #include "ui_gallery.h"
 #include "ui_sysinfo.h"
 #include "ui_pc_perf.h"
+#include "ui_pc_perf_cfg.h"
 
 static const char *TAG = "app_main";
 
@@ -67,6 +69,7 @@ static lv_obj_t *scr_sysinfo_cpu;
 static lv_obj_t *scr_sysinfo_stack;
 static lv_obj_t *scr_sysinfo_about;
 static lv_obj_t *scr_pc_perf;
+static lv_obj_t *scr_pc_perf_cfg;
 
 /* Page-switch request produced by the key task and consumed by the LVGL task
  * (LVGL is not thread-safe, so screens are switched from the LVGL thread). */
@@ -96,6 +99,7 @@ typedef enum {
     SWITCH_ACCEL,
     SWITCH_GYRO,
     SWITCH_PC_PERF,
+    SWITCH_PC_PERF_CFG,
 } switch_req_t;
 static volatile switch_req_t s_switch_req = SWITCH_NONE;
 
@@ -200,6 +204,20 @@ static void sysinfo_about_open(void)
 static void sysinfo_sub_close(void)
 {
     s_switch_req = SWITCH_SYSINFO;
+}
+
+/* Called from the PC-Perf page "Config" button (LVGL thread) */
+static void pc_perf_cfg_open(void)
+{
+    s_switch_req = SWITCH_PC_PERF_CFG;
+}
+
+/* Called from the PC-Perf Config page Back / option picked
+ * (LVGL thread) */
+static void pc_perf_cfg_close(void)
+{
+    s_cur_page = 6; /* back to PC Performance page */
+    s_switch_req = SWITCH_PC_PERF;
 }
 
 /* Called from the Sensor page "Accel" / "Gyro" buttons (LVGL thread) */
@@ -312,6 +330,8 @@ static void lvgl_task(void *arg)
             }
             if (req == SWITCH_PC_PERF) {
                 lv_scr_load(scr_pc_perf);
+            } else if (req == SWITCH_PC_PERF_CFG) {
+                lv_scr_load(scr_pc_perf_cfg);
             } else if (req == SWITCH_HOME) {
                 ui_home_reset_hint(); /* clear stale press-count text */
                 lv_scr_load(scr_home);
@@ -487,6 +507,11 @@ void app_main(void)
         ESP_LOGI(TAG, "MQTT manager started");
     }
 
+    // PC performance data over MQTT: subscribes to the configured topic
+    // (pc/performance) once the broker connects. Non-fatal: the PC-Perf
+    // page falls back to the BLE peripheral when no MQTT frame arrives.
+    pc_perf_mqtt_init();
+
     // SNTP time sync (starts on first WiFi connection, TZ from Kconfig)
     // Non-fatal: the clock on the Home page stays "Syncing..." offline.
     esp_err_t time_ret = time_manager_init();
@@ -586,6 +611,7 @@ void app_main(void)
     scr_sysinfo_stack = ui_sysinfo_stack_create();
     scr_sysinfo_about = ui_sysinfo_about_create();
     scr_pc_perf = ui_pc_perf_create();
+    scr_pc_perf_cfg = ui_pc_perf_cfg_create();
 
     // Display is already landscape by default: lv_port_disp_init() rotates
     // to 320x240 during registration, so screens are created wide from the
@@ -637,6 +663,10 @@ void app_main(void)
     ui_sysinfo_cpu_set_back_cb(sysinfo_sub_close);
     ui_sysinfo_stack_set_back_cb(sysinfo_sub_close);
     ui_sysinfo_about_set_back_cb(sysinfo_sub_close);
+
+    // PC-Perf page "Config" button -> Config page; back -> PC-Perf
+    ui_pc_perf_set_cfg_cb(pc_perf_cfg_open);
+    ui_pc_perf_cfg_set_back_cb(pc_perf_cfg_close);
 
     // SD status page "Browse Files" -> file browser; back -> SD status page
     ui_sd_set_browse_cb(sd_files_open);

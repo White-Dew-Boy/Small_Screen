@@ -24,6 +24,7 @@ idf_component_register(
         "gui/ui_gallery.c"
         "gui/ui_sysinfo.c"
         "gui/ui_pc_perf.c"
+        "gui/ui_pc_perf_cfg.c"
         "drivers/ft6336.c"
         "drivers/i2c_bus.c"
         "drivers/key.c"
@@ -39,6 +40,8 @@ idf_component_register(
         "drivers/mqtt_manager.c"
         "drivers/time_manager.c"
         "drivers/ble_perf.c"
+        "drivers/pc_perf_mqtt.c"
+        "drivers/pc_perf_src.c"
     INCLUDE_DIRS 
         "."
         "gui"
