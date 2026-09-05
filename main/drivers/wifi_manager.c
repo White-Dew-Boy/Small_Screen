@@ -520,6 +520,58 @@ esp_err_t wifi_manager_connect_saved(int idx)
     return ESP_OK;
 }
 
+esp_err_t wifi_manager_forget(int idx)
+{
+    char removed_ssid[33] = {0};
+    bool was_active = false;
+
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (idx < 0 || idx >= s_creds.count) {
+        xSemaphoreGive(s_lock);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    strlcpy(removed_ssid, s_creds.list[idx].ssid, sizeof(removed_ssid));
+    was_active = s_has_creds && strcmp(removed_ssid, s_ssid) == 0;
+
+    /* Drop the idx-th entry by shifting the rest left */
+    for (int i = idx; i < s_creds.count - 1; i++) {
+        s_creds.list[i] = s_creds.list[i + 1];
+    }
+    s_creds.count--;
+    xSemaphoreGive(s_lock);
+
+    ESP_LOGI(TAG, "Forgetting \"%s\" (was active: %d)", removed_ssid,
+             was_active);
+    esp_err_t ret = creds_store();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to persist forget: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    if (was_active) {
+        /* The device was using this network: clear the active credentials
+         * and stop any connect/retry attempt, otherwise the DISCONNECTED
+         * handler would keep reconnecting to a forgotten (e.g.
+         * wrong-password) network. */
+        s_has_creds = false;
+        s_ssid[0] = '\0';
+        s_pass[0] = '\0';
+        s_auto_reconnect = false;
+        s_retry_cnt = 0;
+
+        wifi_info_t info;
+        wifi_manager_get_info(&info);
+        if (info.state == WIFI_STATE_CONNECTED ||
+            info.state == WIFI_STATE_CONNECTING) {
+            s_manual_switch = true; /* initiated by us, not a failure */
+            esp_wifi_disconnect();
+        }
+        set_state(WIFI_STATE_DISCONNECTED);
+    }
+    return ESP_OK;
+}
+
 esp_err_t wifi_manager_get_credentials(char *ssid, size_t ssid_cap,
                                        char *password, size_t pass_cap)
 {

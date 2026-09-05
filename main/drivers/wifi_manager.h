@@ -114,6 +114,20 @@ const wifi_cred_t *wifi_manager_cred_get(int idx);
 esp_err_t wifi_manager_connect_saved(int idx);
 
 /**
+ * @brief Forget (remove) the idx-th saved network.
+ *
+ * Deletes the entry from NVS so it is gone after a reboot. If the removed
+ * network is the one the device is currently connected to or trying to
+ * connect to, the active credentials are cleared and the link is dropped
+ * with auto-reconnect disabled — the manager stops retrying a forgotten
+ * (e.g. wrong-password) network.
+ *
+ * @param[in] idx  Index into the saved list (0..cred_count()-1).
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if idx is out of range.
+ */
+esp_err_t wifi_manager_forget(int idx);
+
+/**
  * @brief Check whether WiFi credentials are saved in NVS.
  * @return true if credentials exist.
  */

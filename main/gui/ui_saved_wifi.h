@@ -3,8 +3,11 @@
 
 /**
  * @brief Create the "Saved WiFi" page: lists saved networks (max 5).
- *        Tapping one connects to it; connection failure shows an error.
- *        Must be called after lv_init() and lv_port_disp_init().
+ *        Tapping a name selects (highlights) it; the bottom Connect and
+ *        Delete buttons are grayed out until a network is selected.
+ *        Connect starts a connection attempt; Delete removes the network
+ *        from NVS after a confirmation dialog. Must be called after
+ *        lv_init() and lv_port_disp_init().
  * @return The created screen object (not loaded yet — use lv_scr_load()).
  */
 lv_obj_t *ui_saved_wifi_create(void);
