@@ -6,6 +6,8 @@ CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_MEM_CUSTOM=y
 CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
+# PC-Perf page title uses the 20 px Montserrat font
+CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_USE_LOG=y
 # INFO-level LVGL trace floods the UART (thousands of lines/min at
 # 115200 baud) and slows the LVGL task; WARN keeps real issues visible.
