@@ -50,6 +50,18 @@ menu "MQTT Configuration"
             the broker. The sensor is read every 2 s; publishing is
             rate-limited to this interval.
 
+    config MQTT_PC_PERF_TOPIC
+        string "PC performance subscribe topic"
+        default "pc/performance"
+        help
+            Topic the device subscribes to (QoS 1) for PC performance
+            data published by the PC tool, a flat JSON object:
+              {"timestamp":..,"cpu":..,"memory":..,
+               "upload_speed":..,"download_speed":..,"gpu":..,"disk":..}
+            cpu/memory/gpu/disk are percent, upload_speed/download_speed
+            are KB/s. Leave empty to disable the MQTT path (the PC-Perf
+            page then falls back to BLE only).
+
 endmenu
 
 menu "Time Configuration"

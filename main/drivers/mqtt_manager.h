@@ -30,6 +30,12 @@ typedef struct {
 /* Number of commands kept in the history ring buffer. */
 #define MQTT_CMD_HISTORY_MAX 8
 
+/* Callback for a message received on an extra subscribed topic (see
+ * mqtt_manager_subscribe()). Topic/data are NOT NUL-terminated; use the
+ * lengths. Runs in the esp-mqtt task context. */
+typedef void (*mqtt_topic_handler_t)(const char *topic, int topic_len,
+                                     const char *data, int data_len);
+
 /*============================================================================
  * API
  *============================================================================*/
@@ -155,6 +161,27 @@ esp_err_t mqtt_manager_connect(void);
 /*============================================================================
  * Command history
  *============================================================================*/
+/**
+ * @brief Register an extra topic subscription with a per-topic handler.
+ *
+ * The device already subscribes to its own command topic
+ * (devices/<id>/cmd); this adds one more fixed topic (e.g. the PC
+ * performance topic "pc/performance"). The subscription is issued every
+ * time the client (re)connects, so no extra bookkeeping is needed on the
+ * caller's side.
+ *
+ * May be called at any time after mqtt_manager_init(); callbacks start
+ * arriving once the client connects to the broker.
+ *
+ * @param[in] topic    Exact topic to subscribe to (no wildcards).
+ * @param[in] qos      Subscription QoS (0..2).
+ * @param[in] handler  Called for every matching message (not NULL).
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG on bad input,
+ *         ESP_ERR_NO_MEM when the registration table is full.
+ */
+esp_err_t mqtt_manager_subscribe(const char *topic, int qos,
+                                 mqtt_topic_handler_t handler);
+
 /**
  * @brief Get the recent command history (oldest first).
  * @param[out] out    Buffer for up to `max` entries.

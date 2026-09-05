@@ -56,6 +56,18 @@ static mqtt_cmd_entry_t s_cmd_hist[MQTT_CMD_HISTORY_MAX];
 static size_t s_cmd_hist_count = 0;
 static size_t s_cmd_hist_pos = 0; /* next write slot */
 
+/* Extra topic subscriptions registered via mqtt_manager_subscribe().
+ * The command topic itself is handled separately (see handle_cmd). */
+#define MQTT_EXT_SUB_MAX 4
+
+typedef struct {
+    char topic[64];
+    int qos;
+    mqtt_topic_handler_t handler;
+} mqtt_sub_entry_t;
+
+static mqtt_sub_entry_t s_ext_subs[MQTT_EXT_SUB_MAX];
+
 /* ============================ NVS config ============================ */
 
 /* Apply Kconfig defaults, then let NVS override them. */
@@ -175,6 +187,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         ESP_LOGI(TAG, "Connected to broker");
         publish_status("online");
         esp_mqtt_client_subscribe(s_client, s_cmd_topic, 1);
+        /* Extra registered subscriptions (re)subscribe on every connect */
+        for (size_t i = 0; i < MQTT_EXT_SUB_MAX; i++) {
+            if (s_ext_subs[i].handler != NULL && s_ext_subs[i].topic[0] != '\0') {
+                esp_mqtt_client_subscribe(s_client, s_ext_subs[i].topic,
+                                          s_ext_subs[i].qos);
+            }
+        }
         break;
 
     case MQTT_EVENT_DISCONNECTED:
@@ -186,6 +205,18 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
         if (event->topic != NULL &&
             strncmp(event->topic, s_cmd_topic, event->topic_len) == 0) {
             handle_cmd(event->data, event->data_len);
+        }
+        /* Dispatch to extra registered subscriptions (exact topic match) */
+        for (size_t i = 0; i < MQTT_EXT_SUB_MAX; i++) {
+            if (s_ext_subs[i].handler == NULL || s_ext_subs[i].topic[0] == '\0') {
+                continue;
+            }
+            size_t tlen = strlen(s_ext_subs[i].topic);
+            if (event->topic != NULL && event->topic_len == (int)tlen &&
+                memcmp(event->topic, s_ext_subs[i].topic, tlen) == 0) {
+                s_ext_subs[i].handler(event->topic, event->topic_len,
+                                      event->data, event->data_len);
+            }
         }
         break;
 
@@ -468,4 +499,41 @@ size_t mqtt_manager_get_cmd_history(mqtt_cmd_entry_t *out, size_t max)
         out[i] = s_cmd_hist[(start + i) % MQTT_CMD_HISTORY_MAX];
     }
     return n;
+}
+
+esp_err_t mqtt_manager_subscribe(const char *topic, int qos,
+                                 mqtt_topic_handler_t handler)
+{
+    if (topic == NULL || topic[0] == '\0' || handler == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (qos < 0) {
+        qos = 0;
+    }
+    if (qos > 2) {
+        qos = 2;
+    }
+
+    /* Re-registering the same topic replaces the old entry. */
+    for (size_t i = 0; i < MQTT_EXT_SUB_MAX; i++) {
+        if (s_ext_subs[i].handler != NULL &&
+            strcmp(s_ext_subs[i].topic, topic) == 0) {
+            strlcpy(s_ext_subs[i].topic, topic, sizeof(s_ext_subs[i].topic));
+            s_ext_subs[i].qos = qos;
+            s_ext_subs[i].handler = handler;
+            return ESP_OK;
+        }
+    }
+    for (size_t i = 0; i < MQTT_EXT_SUB_MAX; i++) {
+        if (s_ext_subs[i].handler == NULL) {
+            strlcpy(s_ext_subs[i].topic, topic, sizeof(s_ext_subs[i].topic));
+            s_ext_subs[i].qos = qos;
+            s_ext_subs[i].handler = handler;
+            ESP_LOGI(TAG, "Extra subscription registered: %s (qos %d)",
+                     topic, qos);
+            return ESP_OK;
+        }
+    }
+    ESP_LOGE(TAG, "Extra subscription table full (%d)", MQTT_EXT_SUB_MAX);
+    return ESP_ERR_NO_MEM;
 }
