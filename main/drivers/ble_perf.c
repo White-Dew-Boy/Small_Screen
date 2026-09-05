@@ -9,6 +9,7 @@
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/ble_att.h"
+#include "host/ble_gap.h"
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
@@ -37,24 +38,25 @@ static const ble_uuid128_t chr_data_uuid = BLE_UUID128_INIT(
     0xa8, 0x26, 0x1b, 0x36, 0x07, 0xea, 0xf5, 0xb7,
     0x88, 0x46, 0xe1, 0x36, 0x3e, 0x48, 0xb5, 0xbe);
 
-/* Wire protocol: fixed-length binary frame, 22 bytes little-endian:
- *       [0] magic 0x50, [1] version 0x01,
- *       [2..3] cpu u16 (0.1%), [4..5] mem u16 (0.1%),
- *       [6..9] up u32 (KB/s x 1000, i.e. B/s), [10..13] down u32 (same),
- *       [14..15] gpu u16 (0.1%), [16..17] disk u16 (0.1%),
- *       [18..19] temp i16 (0.1 C), [20..21] fps u16
- *     Sentinel: 0 in an optional field = not reported. For temp, the
- *     current sender uses 0 = not reported; -32768 is reserved as the
- *     "not reported" sentinel for a future sender that needs a real 0.0 C
- *     (then the check below must drop the ==0 case). The frame carries no
- *     timestamp: the ESP32 stamps reception time.
- * The 22-byte frame needs ATT MTU >= 25; pc_perf_init() requests 247 (see
+/* Wire protocol v2 (materials/ble_frame_parsing.md): fixed-length binary
+ * frame, 23 bytes little-endian:
+ *       [0] magic 0x50, [1] version 0x02,
+ *       [2] flags u8 bitmask (bit N=1 => field N has data):
+ *           bit0 cpu, bit1 mem, bit2 up, bit3 down, bit4 gpu,
+ *           bit5 disk, bit6 temp, bit7 fps
+ *       [3..4] cpu u16 (0.1%), [5..6] mem u16 (0.1%),
+ *       [7..10] up u32 (KB/s x 1000, i.e. B/s), [11..14] down u32 (same),
+ *       [15..16] gpu u16 (0.1%), [17..18] disk u16 (0.1%, disk utilization),
+ *       [19..20] temp i16 (0.1 C, signed), [21..22] fps u16
+ *     A field with flag bit = 0 carries NO data and must not be displayed;
+ *     0 is a legal measured value since v2 (the old "0 = not reported"
+ *     sentinels are gone). The frame carries no timestamp: the ESP32 stamps
+ *     reception time.
+ * The 23-byte frame needs ATT MTU >= 26; pc_perf_init() requests 247 (see
  * CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU). */
 #define FRAME_MAGIC   0x50
-#define FRAME_VERSION 0x01
-#define FRAME_SIZE    22
-#define TEMP_NODATA   0      /* current sender: 0 = not reported */
-#define TEMP_NODATA_SENTINEL (-32768) /* reserved future "not reported" */
+#define FRAME_VERSION 0x02
+#define FRAME_SIZE    23
 
 /* Shared snapshot (written by the NimBLE host task, read by LVGL) */
 static pc_perf_data_t s_data;
@@ -64,6 +66,21 @@ static uint8_t s_bin[FRAME_SIZE];
 static int s_bin_len = 0;
 
 static uint8_t s_own_addr_type;
+
+/* Handle of the current BLE link (BLE_HS_CONN_HANDLE_NONE when none), so a
+ * source switch away from BLE can actively terminate it. */
+static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+
+/* HCI reason sent to the peer when we terminate the link ourselves. */
+#define BLE_LOCAL_TERM_REASON 0x13 /* Remote User Terminated Connection */
+
+/* Advertising is request-based to save power: the UI asks for advertising
+ * (pc_perf_advertise_start/stop) while the PC-Perf page is visible in BLE
+ * mode. s_host_synced is set by the host-sync callback, s_advertising
+ * tracks whether a connectable advertising run is currently active. */
+static bool s_host_synced = false;
+static bool s_adv_wanted = false;
+static bool s_advertising = false;
 
 /* Guard: pc_perf_init() may only act once (lazy start from the LVGL thread
  * the first time the PC-Perf page is shown). */
@@ -75,7 +92,8 @@ static bool s_init_done = false;
 
 /* Parse a FRAME_SIZE-byte binary frame (see the layout comment above).
  * Manual little-endian decoding keeps it portable. Called from the NimBLE
- * host task. */
+ * host task. Values of fields whose flag bit is 0 are meaningless (do not
+ * display); `present` mirrors the flags byte 1:1. */
 static void parse_binary(const uint8_t *f)
 {
     if (f[0] != FRAME_MAGIC || f[1] != FRAME_VERSION) {
@@ -83,17 +101,19 @@ static void parse_binary(const uint8_t *f)
         return;
     }
 
-    uint16_t cpu  = (uint16_t)(f[2] | (f[3] << 8));
-    uint16_t mem  = (uint16_t)(f[4] | (f[5] << 8));
-    uint32_t up   = (uint32_t)f[6] | ((uint32_t)f[7] << 8) |
-                    ((uint32_t)f[8] << 16) | ((uint32_t)f[9] << 24);
-    uint32_t down = (uint32_t)f[10] | ((uint32_t)f[11] << 8) |
-                    ((uint32_t)f[12] << 16) | ((uint32_t)f[13] << 24);
-    uint16_t gpu  = (uint16_t)(f[14] | (f[15] << 8));
-    uint16_t disk = (uint16_t)(f[16] | (f[17] << 8));
-    int16_t  temp = (int16_t)(uint16_t)(f[18] | (f[19] << 8));
-    uint16_t fps  = (uint16_t)(f[20] | (f[21] << 8));
+    uint8_t  flags = f[2];
+    uint16_t cpu  = (uint16_t)(f[3] | (f[4] << 8));
+    uint16_t mem  = (uint16_t)(f[5] | (f[6] << 8));
+    uint32_t up   = (uint32_t)f[7] | ((uint32_t)f[8] << 8) |
+                    ((uint32_t)f[9] << 16) | ((uint32_t)f[10] << 24);
+    uint32_t down = (uint32_t)f[11] | ((uint32_t)f[12] << 8) |
+                    ((uint32_t)f[13] << 16) | ((uint32_t)f[14] << 24);
+    uint16_t gpu  = (uint16_t)(f[15] | (f[16] << 8));
+    uint16_t disk = (uint16_t)(f[17] | (f[18] << 8));
+    int16_t  temp = (int16_t)(uint16_t)(f[19] | (f[20] << 8)); /* signed */
+    uint16_t fps  = (uint16_t)(f[21] | (f[22] << 8));
 
+    s_data.present = flags;
     s_data.cpu_pct = cpu / 10.0f;
     s_data.mem_pct = mem / 10.0f;
     /* Speeds are fixed-point KB/s x 1000 (i.e. B/s): divide by 1000. */
@@ -101,10 +121,7 @@ static void parse_binary(const uint8_t *f)
     s_data.down_kbs = (float)down / 1000.0f;
     s_data.gpu_pct = gpu / 10.0f;
     s_data.disk_pct = disk / 10.0f;
-    /* temp sentinel: 0 (current sender) or -32768 (reserved) = not reported */
-    s_data.temp_c = (temp == TEMP_NODATA || temp == TEMP_NODATA_SENTINEL)
-                        ? 0.0f
-                        : temp / 10.0f;
+    s_data.temp_c = temp / 10.0f; /* may be negative; no 0-sentinel anymore */
     s_data.fps = (float)fps;
 
     s_data.valid = true;
@@ -195,10 +212,14 @@ static int pc_perf_gap_event(struct ble_gap_event *event, void *arg)
         if (event->connect.status == 0) {
             ESP_LOGI(TAG, "PC connected");
             s_data.connected = true;
+            s_conn_handle = event->connect.conn_handle;
+            s_advertising = false; /* the stack stops advertising on connect */
         } else {
-            ESP_LOGW(TAG, "Connect failed (status=%d), re-advertising",
-                     event->connect.status);
-            pc_perf_advertise();
+            ESP_LOGW(TAG, "Connect failed (status=%d)", event->connect.status);
+            s_data.connected = false;
+            if (s_adv_wanted) {
+                pc_perf_advertise();
+            }
         }
         return 0;
 
@@ -206,11 +227,21 @@ static int pc_perf_gap_event(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "PC disconnected (reason=%d)", event->disconnect.reason);
         s_data.connected = false;
         s_data.valid = false;
-        pc_perf_advertise();
+        s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        s_advertising = false;
+        /* Do NOT re-advertise unconditionally: only when the UI still
+         * wants it (page visible, BLE source). Otherwise the radio stays
+         * quiet until the page asks again. */
+        if (s_adv_wanted) {
+            pc_perf_advertise();
+        }
         return 0;
 
     case BLE_GAP_EVENT_ADV_COMPLETE:
-        pc_perf_advertise();
+        s_advertising = false;
+        if (s_adv_wanted) {
+            pc_perf_advertise();
+        }
         return 0;
 
     default:
@@ -218,7 +249,8 @@ static int pc_perf_gap_event(struct ble_gap_event *event, void *arg)
     }
 }
 
-/* Advertise: general discoverable, undirected connectable, forever.
+/* Start one connectable advertising run (if it finishes, the ADV_COMPLETE
+ * event restarts it — but only while advertising is still wanted).
  * Packet layout (each field ≤ 31 bytes):
  *   advertising  : flags + COMPLETE device name "ESP32_PC_Monitor" (21 B)
  *   scan response: 128-bit PC-Perf service UUID (18 B)
@@ -273,10 +305,14 @@ static void pc_perf_advertise(void)
                            &adv_params, pc_perf_gap_event, NULL);
     if (rc != 0) {
         ESP_LOGE(TAG, "adv_start failed: %d", rc);
+        s_advertising = false;
+        return;
     }
+    s_advertising = true;
 }
 
-/* Host sync: pick the address type and start advertising. */
+/* Host sync: pick the address type and start advertising — but only when
+ * the UI has requested it (page visible, BLE source). */
 static void pc_perf_on_sync(void)
 {
     int rc = ble_hs_util_ensure_addr(0);
@@ -297,7 +333,10 @@ static void pc_perf_on_sync(void)
     ESP_LOGI(TAG, "Advertising as \"%s\" (addr %02x:%02x:%02x:%02x:%02x:%02x)",
              DEVICE_NAME, addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]);
 
-    pc_perf_advertise();
+    s_host_synced = true;
+    if (s_adv_wanted) {
+        pc_perf_advertise();
+    }
 }
 
 static void pc_perf_on_reset(int reason)
@@ -324,6 +363,7 @@ void pc_perf_get_data(pc_perf_data_t *out)
     }
     out->connected = s_data.connected;
     out->valid = s_data.valid;
+    out->present = s_data.present;
     out->cpu_pct = s_data.cpu_pct;
     out->mem_pct = s_data.mem_pct;
     out->up_kbs = s_data.up_kbs;
@@ -333,6 +373,49 @@ void pc_perf_get_data(pc_perf_data_t *out)
     out->temp_c = s_data.temp_c;
     out->fps = s_data.fps;
     out->last_update_ms = s_data.last_update_ms;
+}
+
+void pc_perf_advertise_start(void)
+{
+    s_adv_wanted = true;
+    if (!s_host_synced || s_data.connected || s_advertising) {
+        return; /* not ready yet, PC already linked, or already running */
+    }
+    pc_perf_advertise();
+}
+
+void pc_perf_advertise_stop(void)
+{
+    s_adv_wanted = false;
+    if (!s_advertising) {
+        return; /* nothing to stop (also when a PC is connected) */
+    }
+    s_advertising = false;
+    int rc = ble_gap_adv_stop();
+    if (rc != 0) {
+        ESP_LOGW(TAG, "adv_stop failed: %d", rc);
+    }
+}
+
+/* Actively terminate an established BLE link (called when the data source
+ * is switched away from BLE, e.g. to MQTT/Off). Idempotent: once the link
+ * is gone (or was never there) this is a no-op; the DISCONNECT event also
+ * clears the state. */
+void pc_perf_disconnect(void)
+{
+    if (!s_data.connected || s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return;
+    }
+    ESP_LOGI(TAG, "Terminating BLE link (source no longer BLE)");
+    int rc = ble_gap_terminate(s_conn_handle, BLE_LOCAL_TERM_REASON);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "ble_gap_terminate failed: %d", rc);
+    }
+    /* Clear immediately so a repeating UI timer does not retry; the
+     * DISCONNECT event will confirm. */
+    s_data.connected = false;
+    s_data.valid = false;
+    s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 }
 
 esp_err_t pc_perf_init(void)
@@ -356,9 +439,9 @@ esp_err_t pc_perf_init(void)
     ble_hs_cfg.reset_cb = pc_perf_on_reset;
     ble_hs_cfg.sync_cb = pc_perf_on_sync;
 
-    /* The 22-byte frame needs ATT MTU >= 25. Ask for 247 (NimBLE initiates
-     * the MTU exchange on connect; the peer may agree to anything >= 25).
-     * This mirrors CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=247. */
+    /* The 23-byte v2 frame needs ATT MTU >= 26. Ask for 247 (NimBLE
+     * initiates the MTU exchange on connect; the peer may agree to
+     * anything >= 26). This mirrors CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU. */
     ble_att_set_preferred_mtu(247);
 
     rc = ble_svc_gap_device_name_set(DEVICE_NAME);
