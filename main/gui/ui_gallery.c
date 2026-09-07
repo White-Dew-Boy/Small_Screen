@@ -31,6 +31,7 @@ static int s_cur = 0;
 
 static uint8_t *s_buf = NULL;   /* 150 KB frame buffer (PSRAM) */
 static lv_img_dsc_t s_dsc;      /* descriptor pointing at s_buf */
+static lv_timer_t *s_timer = NULL;
 
 /* A gallery picture is a 320x240 raw RGB565 dump (.bin, exact size). */
 static bool is_picture(const sd_file_entry_t *e)
@@ -99,6 +100,18 @@ static void slideshow_timer_cb(lv_timer_t *timer)
     next_pic();
 }
 
+/* Tap anywhere on the screen: next picture, restart the countdown. */
+static void tap_advance_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_pic_count > 1) {
+        next_pic();
+        if (s_timer != NULL) {
+            lv_timer_reset(s_timer); /* full 10 s again from this tap */
+        }
+    }
+}
+
 void ui_gallery_refresh(void)
 {
     /* Re-scan the upload dir for 320x240 .bin pictures. */
@@ -153,7 +166,21 @@ lv_obj_t *ui_gallery_create(void)
     lv_obj_set_style_radius(s_img, 0, 0);
     lv_obj_clear_flag(s_img, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_timer_create(slideshow_timer_cb, SLIDESHOW_PERIOD_MS, NULL);
+    /* Full-screen tap area on top of the image. A plain lv_obj would get
+     * the theme's card style (white bg + border) — strip it so nothing
+     * is drawn; only clicks matter. */
+    lv_obj_t *tap = lv_obj_create(s_scr);
+    lv_obj_set_size(tap, PIC_W, PIC_H);
+    lv_obj_set_pos(tap, 0, 0);
+    lv_obj_set_style_bg_opa(tap, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(tap, 0, 0);
+    lv_obj_set_style_pad_all(tap, 0, 0);
+    lv_obj_set_style_radius(tap, 0, 0);
+    lv_obj_clear_flag(tap, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(tap, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(tap, tap_advance_cb, LV_EVENT_CLICKED, NULL);
+
+    s_timer = lv_timer_create(slideshow_timer_cb, SLIDESHOW_PERIOD_MS, NULL);
 
     return s_scr;
 }

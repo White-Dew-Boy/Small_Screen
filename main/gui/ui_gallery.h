@@ -4,11 +4,12 @@
 /**
  * @brief Create the SD picture slideshow page (gallery).
  *
- * Scans the upload directory (/sdcard/esp32_files) for 240x320 raw RGB565
+ * Scans the upload directory (/sdcard/esp32_files) for 320x240 raw RGB565
  * .bin images (153,600 bytes each, produced by tools/convert.py with
- * --raw) and auto-advances through them every 10 seconds, full screen,
- * with no overlays or buttons. Leave the page with KEY3 (returns to the
- * Home menu) or KEY2.
+ * --raw -w 320 -H 240) and auto-advances through them every 10 seconds,
+ * full screen, with no overlays or buttons. Tapping anywhere switches to
+ * the next picture and restarts the 10-second countdown. Leave the page
+ * with KEY3 (returns to the Home menu) or KEY2.
  *
  * All SD reads happen on the LVGL task (shared SPI bus, see sd_card.h);
  * each frame load blocks the task for ~50-100 ms while the previous frame
