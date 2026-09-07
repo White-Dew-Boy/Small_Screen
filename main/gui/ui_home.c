@@ -169,9 +169,9 @@ lv_obj_t *ui_home_create(void)
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x101418), 0);
 
     lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "Home");
+    lv_label_set_text(title, "WhiteLee");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 8, 4);
 
     /* Wall-clock time (SNTP-synced, shown once available); the label is
      * also reused to show the deep-sleep press feedback */
@@ -179,7 +179,7 @@ lv_obj_t *ui_home_create(void)
     s_clock_label = lv_label_create(scr);
     lv_label_set_text(s_clock_label, "Syncing time...");
     lv_obj_set_style_text_color(s_clock_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_clock_label, LV_ALIGN_TOP_MID, 0, 22);
+    lv_obj_align(s_clock_label, LV_ALIGN_TOP_RIGHT, -8, 4);
     lv_timer_create(clock_timer_cb, 1000, NULL);
 
     /* Three rows in the 320x240 space:

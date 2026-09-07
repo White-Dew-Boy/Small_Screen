@@ -144,6 +144,7 @@ lv_obj_t *ui_sensor_create(void)
      * so the labels are clearly readable on the dark background. */
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "Sensor");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 

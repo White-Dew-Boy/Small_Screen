@@ -124,6 +124,7 @@ lv_obj_t *ui_wifi_create(void)
 
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "WiFi Status");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
@@ -131,33 +132,33 @@ lv_obj_t *ui_wifi_create(void)
     state_label = lv_label_create(scr);
     lv_label_set_text(state_label, "Status: Idle");
     lv_obj_set_style_text_color(state_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(state_label, LV_ALIGN_TOP_MID, 0, 26);
+    lv_obj_align(state_label, LV_ALIGN_TOP_MID, 0, 36);
 
     ssid_label = lv_label_create(scr);
     lv_label_set_text(ssid_label, "SSID: --");
     lv_obj_set_style_text_color(ssid_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(ssid_label, LV_ALIGN_TOP_MID, 0, 48);
+    lv_obj_align(ssid_label, LV_ALIGN_TOP_MID, 0, 58);
 
     ip_label = lv_label_create(scr);
     lv_label_set_text(ip_label, "IP: --");
     lv_obj_set_style_text_color(ip_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(ip_label, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_align(ip_label, LV_ALIGN_TOP_MID, 0, 80);
 
     rssi_label = lv_label_create(scr);
     lv_label_set_text(rssi_label, "RSSI: --");
     lv_obj_set_style_text_color(rssi_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(rssi_label, LV_ALIGN_TOP_MID, 0, 92);
+    lv_obj_align(rssi_label, LV_ALIGN_TOP_MID, 0, 102);
 
     retry_label = lv_label_create(scr);
     lv_label_set_text(retry_label, "Auto reconnect: 0 time(s)");
     lv_obj_set_style_text_color(retry_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(retry_label, LV_ALIGN_TOP_MID, 0, 114);
+    lv_obj_align(retry_label, LV_ALIGN_TOP_MID, 0, 124);
 
     /* Disconnect reason (shown when not connected, e.g. "AP not found") */
     reason_label = lv_label_create(scr);
     lv_label_set_text(reason_label, "");
     lv_obj_set_style_text_color(reason_label, lv_color_hex(0xFFB74D), 0);
-    lv_obj_align(reason_label, LV_ALIGN_TOP_MID, 0, 136);
+    lv_obj_align(reason_label, LV_ALIGN_TOP_MID, 0, 146);
 
     /* Bottom row: Saved WiFi | Disconnect | Nearby WiFi */
     lv_obj_t *saved_btn = lv_btn_create(scr);

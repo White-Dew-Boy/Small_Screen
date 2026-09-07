@@ -457,7 +457,7 @@ lv_obj_t *ui_pc_perf_create(void)
     /* Top-right button: open the Config page (data source + link state).
      * Sized for comfortable touch (92x36). */
     lv_obj_t *cfg_btn = lv_btn_create(scr);
-    lv_obj_set_size(cfg_btn, 92, 36);
+    lv_obj_set_size(cfg_btn, 92, 32);
     lv_obj_align(cfg_btn, LV_ALIGN_TOP_RIGHT, -8, 4);
     lv_obj_set_style_bg_color(cfg_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(cfg_btn, lv_color_hex(0x8AB4F8), 0);

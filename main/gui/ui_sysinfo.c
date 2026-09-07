@@ -363,17 +363,18 @@ lv_obj_t *ui_sysinfo_create(void)
     lv_obj_t *title = lv_label_create(s_scr);
     lv_label_set_text(title, "System Info");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
     /* Always-visible info rows: gray label + white value, 14px.
      * Rows are full-width single lines, spaced every 22 px. */
-    up_label     = make_info_row(s_scr, "Uptime", 30);
-    heap_label   = make_info_row(s_scr, "Free heap", 52);
-    min_label    = make_info_row(s_scr, "Min free", 74);
-    mem_label    = make_info_row(s_scr, "Int RAM", 96);
-    psram_label  = make_info_row(s_scr, "PSRAM", 118);
-    fw_label     = make_info_row(s_scr, "Firmware", 140);
-    cpu_load_label = make_info_row(s_scr, "CPU load", 162);
+    up_label     = make_info_row(s_scr, "Uptime", 35);
+    heap_label   = make_info_row(s_scr, "Free heap", 57);
+    min_label    = make_info_row(s_scr, "Min free", 79);
+    mem_label    = make_info_row(s_scr, "Int RAM", 101);
+    psram_label  = make_info_row(s_scr, "PSRAM", 123);
+    fw_label     = make_info_row(s_scr, "Firmware", 145);
+    cpu_load_label = make_info_row(s_scr, "CPU load", 167);
 
     /* Flashed firmware size: read once (image verify walks the whole image) */
     firmware_size_init();
