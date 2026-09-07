@@ -439,7 +439,6 @@ static void shtc3_task(void *arg)
 
     uint16_t raw_humi = 0, raw_temp = 0;
     float humi = 0.0f, temp = 0.0f;
-    uint32_t ok_loops = 0; /* successful reads; 2 s each -> 30 = 60 s */
 
     while (1) {
         esp_err_t read_ret = shtc3_getdata(&raw_humi, &raw_temp);
@@ -454,15 +453,24 @@ static void shtc3_task(void *arg)
 
             /* Publish to the MQTT broker (rate-limited internally) */
             mqtt_manager_publish_telemetry(temp, humi);
-
-            /* Heartbeat: one log per 60 s to prove the system is alive */
-            if ((++ok_loops % 30) == 0) {
-                ESP_LOGI(TAG, "System alive - Temperature: %.2f C, Humidity: %.2f %%RH",
-                         temp, humi);
-            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
+/* Standalone heartbeat: proves the system itself is alive. Independent of
+ * any sensor, so it keeps ticking even when SHTC3/JY901S are absent or
+ * failing (the old heartbeat was tied to successful SHTC3 reads). */
+static void heartbeat_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(60000)); /* 60 s */
+        uint32_t uptime_s = pdTICKS_TO_MS(xTaskGetTickCount()) / 1000;
+        ESP_LOGI(TAG, "System alive - uptime: %lu s, free internal heap: %lu KB",
+                 (unsigned long)uptime_s,
+                 (unsigned long)esp_get_free_internal_heap_size() / 1024);
     }
 }
 
@@ -677,6 +685,12 @@ void app_main(void)
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,
              (unsigned long)esp_get_free_heap_size() / 1024);
+
+    /* Heartbeat task: logs "System alive" every 60 s on its own, without
+     * depending on any sensor read. Low priority — it only sleeps. */
+    if (xTaskCreate(heartbeat_task, "heartbeat", 2048, NULL, 1, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "FAILED to create heartbeat_task");
+    }
 
     /* 16 KB stack: the LVGL task also executes the upload server's SD
      * file I/O (directory listing via opendir/readdir/stat/qsort inside
