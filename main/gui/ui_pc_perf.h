@@ -5,8 +5,8 @@
  * @brief Create the PC Performance page. Shows the metrics streamed from a
  *        PC over the transport selected on the Config page (top-right
  *        "Config" button -> ui_pc_perf_cfg; default MQTT): MQTT topic
- *        pc/performance (see drivers/pc_perf_mqtt.h) or the BLE peripheral
- *        (drivers/ble_perf.h). CPU / memory usage bars plus network
+ *        pc/performance (see app/pc_perf_mqtt.h) or the BLE peripheral
+ *        (app/ble_perf.h). CPU / memory usage bars plus network
  *        upload/download speeds; GPU, disk, temperature and FPS rows appear
  *        automatically when the sender reports them. Link/connection state
  *        is shown on the Config page, not here.

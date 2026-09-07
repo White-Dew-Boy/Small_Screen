@@ -23,7 +23,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "drivers/jy901s.h"
+#include "jy901s.h"
 
 static const char *TAG = "jy901s";
 

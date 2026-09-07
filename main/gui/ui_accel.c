@@ -1,7 +1,7 @@
 #include "ui_accel.h"
 #include "lvgl.h"
 #include <stdio.h>
-#include "drivers/jy901s.h"
+#include "jy901s.h"
 
 static lv_obj_t *ax_val;
 static lv_obj_t *ay_val;

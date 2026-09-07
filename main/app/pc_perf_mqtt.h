@@ -6,7 +6,7 @@
 
 /**
  * @brief PC performance data over MQTT — alternate transport to the BLE
- *        peripheral in drivers/ble_perf.c.
+ *        peripheral in app/ble_perf.c.
  *
  * The PC publishes a flat JSON object to the configured topic (default
  * "pc/performance", QoS 1, see CONFIG_MQTT_PC_PERF_TOPIC):

@@ -1,7 +1,7 @@
 #include "ui_gyro.h"
 #include "lvgl.h"
 #include <stdio.h>
-#include "drivers/jy901s.h"
+#include "jy901s.h"
 
 static lv_obj_t *wx_val;
 static lv_obj_t *wy_val;

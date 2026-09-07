@@ -1,7 +1,7 @@
 #pragma once
 #include "lvgl.h"
 #include <stdbool.h>
-#include "drivers/jy901s.h"
+#include "jy901s.h"
 
 /**
  * @brief Create the sensor dashboard UI (SHTC3 + JY901S attitude).

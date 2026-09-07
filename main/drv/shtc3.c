@@ -10,8 +10,8 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "drivers/shtc3.h"
-#include "drivers/i2c_bus.h"
+#include "shtc3.h"
+#include "i2c_bus.h"
 
 static const char *TAG = "shtc3";
 

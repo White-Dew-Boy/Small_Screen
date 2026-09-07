@@ -1,4 +1,4 @@
-/* PC performance data over MQTT (alternate transport to drivers/ble_perf.c).
+/* PC performance data over MQTT (alternate transport to app/ble_perf.c).
  *
  * The PC publishes a small flat JSON object to the configured topic
  * (default "pc/performance", see CONFIG_MQTT_PC_PERF_TOPIC) at QoS 1:
@@ -20,7 +20,7 @@
  * internal RAM — every KB of flash/RAM counts).
  *
  * The parsed values are published into the SAME pc_perf_data_t snapshot
- * shape as the BLE driver (see drivers/ble_perf.h), so the UI page shows
+ * shape as the BLE driver (see app/ble_perf.h), so the UI page shows
  * data from whichever transport is live. temp_c/fps keys are never sent
  * by the PC -> their presence bits never get set (rows auto-hide).
  *
