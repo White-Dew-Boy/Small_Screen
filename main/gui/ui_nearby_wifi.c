@@ -37,6 +37,13 @@ static wifi_scan_result_t s_ap_results[WIFI_SCAN_MAX_RESULTS];
 static size_t s_ap_count = 0;
 static char s_sel_ssid[33];
 
+/* A connect attempt started from the password view is in progress. While
+ * set, the poll timer reports the result and the page stays open so a
+ * wrong password can be corrected — the network is only saved by
+ * wifi_manager once the connection succeeds. */
+static bool s_wait_result = false;
+static lv_timer_t *s_leave_timer = NULL;
+
 void ui_nearby_wifi_set_back_cb(void (*cb)(void))
 {
     s_back_cb = cb;
@@ -139,29 +146,58 @@ static void ap_click_cb(lv_event_t *e)
     set_view_pass();
 }
 
-/* Confirm: save credentials and connect, then leave the page. */
-static void confirm_click_cb(lv_event_t *e)
+/* Leave the page shortly after a successful connect. */
+static void connect_done_leave_cb(lv_timer_t *timer)
 {
-    (void)e;
-    const char *pass = lv_textarea_get_text(s_pass_ta);
-
-    ESP_LOGI(TAG, "Connecting to \"%s\"", s_sel_ssid);
-    esp_err_t ret = wifi_manager_set_credentials(s_sel_ssid, pass);
-    if (ret != ESP_OK) {
-        lv_label_set_text_fmt(s_msg_label, "Error: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    lv_label_set_text(s_msg_label, "Saved, connecting...");
+    (void)timer;
+    s_leave_timer = NULL;
     if (s_back_cb != NULL) {
         s_back_cb();
     }
 }
 
-/* Password-view Back: return to the AP list. */
+static void cancel_leave_timer(void)
+{
+    if (s_leave_timer != NULL) {
+        lv_timer_del(s_leave_timer);
+        s_leave_timer = NULL;
+    }
+}
+
+/* Confirm: connect with the entered credentials WITHOUT saving them yet.
+ * The wifi_manager persists the network only after the connection
+ * succeeds; on failure we stay here and show the reason so the password
+ * can be corrected. */
+static void confirm_click_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_wait_result) {
+        return; /* a connect attempt is already running */
+    }
+    const char *pass = lv_textarea_get_text(s_pass_ta);
+
+    ESP_LOGI(TAG, "Connecting to \"%s\"", s_sel_ssid);
+    esp_err_t ret = wifi_manager_connect_new(s_sel_ssid, pass);
+    if (ret != ESP_OK) {
+        lv_label_set_text_fmt(s_msg_label, "Error: %s", esp_err_to_name(ret));
+        lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xF44336), 0);
+        return;
+    }
+
+    s_wait_result = true;
+    lv_label_set_text_fmt(s_msg_label, "Connecting to \"%s\"...", s_sel_ssid);
+    lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xFFC107), 0);
+}
+
+/* Password-view Back: cancel a running attempt and return to the list. */
 static void pass_back_cb(lv_event_t *e)
 {
     (void)e;
+    cancel_leave_timer();
+    if (s_wait_result) {
+        s_wait_result = false;
+        wifi_manager_disconnect(); /* nothing was saved yet */
+    }
     s_mode = NF_LIST;
     lv_label_set_text(s_scan_label, "");
     set_view_list();
@@ -187,10 +223,43 @@ static void kb_event_cb(lv_event_t *e)
     }
 }
 
-/* LVGL timer: poll until the scan finishes, then fill the list. */
+/* LVGL timer: poll the connect result while waiting, otherwise poll until
+ * the scan finishes. */
 static void scan_poll_cb(lv_timer_t *timer)
 {
     (void)timer;
+
+    /* A connection attempt started from the password view is running:
+     * report success (leave shortly) or failure (stay to re-enter). */
+    if (s_wait_result) {
+        wifi_info_t info;
+        wifi_manager_get_info(&info);
+
+        if (info.state == WIFI_STATE_CONNECTED) {
+            s_wait_result = false;
+            lv_label_set_text_fmt(s_msg_label, "Connected to \"%s\"",
+                                  info.ssid);
+            lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0x4CAF50), 0);
+            if (s_leave_timer == NULL) {
+                s_leave_timer = lv_timer_create(connect_done_leave_cb, 1200, NULL);
+                lv_timer_set_repeat_count(s_leave_timer, 1);
+            }
+            return;
+        }
+
+        /* The manager gives up on an unsaved attempt by clearing its
+         * credentials and staying disconnected — detect that here. */
+        if (info.state == WIFI_STATE_DISCONNECTED &&
+            !wifi_manager_has_credentials()) {
+            s_wait_result = false;
+            lv_label_set_text_fmt(s_msg_label, "Failed: %s",
+                                  wifi_manager_reason_to_str(info.last_reason));
+            lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xF44336), 0);
+            return;
+        }
+        return; /* still connecting */
+    }
+
     if (s_mode != NF_SCANNING) {
         return;
     }
@@ -232,6 +301,7 @@ lv_obj_t *ui_nearby_wifi_create(void)
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "Nearby WiFi");
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
     s_title = title;
 
@@ -270,7 +340,7 @@ lv_obj_t *ui_nearby_wifi_create(void)
     s_pass_label = lv_label_create(s_pass_view);
     lv_label_set_text(s_pass_label, "Password");
     lv_obj_set_style_text_color(s_pass_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(s_pass_label, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_align(s_pass_label, LV_ALIGN_TOP_MID, 0, 2);
 
     s_pass_ta = lv_textarea_create(s_pass_view);
     lv_obj_set_size(s_pass_ta, 200, 32);
@@ -293,14 +363,11 @@ lv_obj_t *ui_nearby_wifi_create(void)
     lv_obj_center(toggle_label);
     lv_obj_add_event_cb(s_pass_toggle_btn, pass_toggle_cb, LV_EVENT_CLICKED, NULL);
 
-    s_msg_label = lv_label_create(s_pass_view);
-    lv_label_set_text(s_msg_label, "");
-    lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xF44336), 0);
-    lv_obj_align(s_msg_label, LV_ALIGN_TOP_MID, 0, 56);
-
+    /* Back / Confirm sit clearly above the keyboard (keyboard starts at
+     * y=122, buttons end at y=96). */
     lv_obj_t *pass_back_btn = lv_btn_create(s_pass_view);
-    lv_obj_set_size(pass_back_btn, 140, 32);
-    lv_obj_align(pass_back_btn, LV_ALIGN_TOP_LEFT, 12, 72);
+    lv_obj_set_size(pass_back_btn, 120, 32);
+    lv_obj_align(pass_back_btn, LV_ALIGN_TOP_LEFT, 28, 62);
     lv_obj_set_style_bg_color(pass_back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(pass_back_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *pback_label = lv_label_create(pass_back_btn);
@@ -309,8 +376,8 @@ lv_obj_t *ui_nearby_wifi_create(void)
     lv_obj_add_event_cb(pass_back_btn, pass_back_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *confirm_btn = lv_btn_create(s_pass_view);
-    lv_obj_set_size(confirm_btn, 140, 32);
-    lv_obj_align(confirm_btn, LV_ALIGN_TOP_RIGHT, -12, 72);
+    lv_obj_set_size(confirm_btn, 120, 32);
+    lv_obj_align(confirm_btn, LV_ALIGN_TOP_RIGHT, -28, 62);
     lv_obj_set_style_bg_color(confirm_btn, lv_color_hex(0x2E7D32), 0);
     lv_obj_set_style_text_color(confirm_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *confirm_label = lv_label_create(confirm_btn);
@@ -318,8 +385,16 @@ lv_obj_t *ui_nearby_wifi_create(void)
     lv_obj_center(confirm_label);
     lv_obj_add_event_cb(confirm_btn, confirm_click_cb, LV_EVENT_CLICKED, NULL);
 
+    /* Status line: single line under the buttons, above the keyboard */
+    s_msg_label = lv_label_create(s_pass_view);
+    lv_label_set_text(s_msg_label, "");
+    lv_obj_set_style_text_color(s_msg_label, lv_color_hex(0xF44336), 0);
+    lv_label_set_long_mode(s_msg_label, LV_LABEL_LONG_CLIP);
+    lv_obj_set_width(s_msg_label, 296);
+    lv_obj_align(s_msg_label, LV_ALIGN_TOP_MID, 0, 100);
+
     s_kb = lv_keyboard_create(s_pass_view);
-    lv_obj_set_size(s_kb, 320, 132);
+    lv_obj_set_size(s_kb, 320, 118);
     lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_keyboard_set_textarea(s_kb, s_pass_ta);
     lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);

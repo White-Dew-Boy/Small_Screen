@@ -54,9 +54,12 @@ typedef struct {
 /**
  * @brief Initialize NVS, netif, event loop and WiFi in STA mode.
  *
- * WiFi credentials are loaded from NVS (saved by wifi_manager_set_credentials()).
- * If credentials exist, connecting starts automatically in the background;
- * otherwise the WiFi radio stays idle until credentials are provided.
+ * WiFi credentials are loaded from NVS (saved on successful connections,
+ * see wifi_manager_connect_new()). The first auto-connect candidate is
+ * the last network that connected successfully; when it fails, the
+ * manager falls back through the saved networks in order (each tried up
+ * to CONFIG_WIFI_MAX_RETRY times) until one connects or all are
+ * exhausted.
  *
  * Non-blocking. Call wifi_manager_get_info() to poll the status.
  *
@@ -65,16 +68,20 @@ typedef struct {
 esp_err_t wifi_manager_init(void);
 
 /**
- * @brief Save WiFi credentials to NVS and (re)connect using them.
+ * @brief Connect to a network with new credentials, saving them only on
+ *        success.
  *
- * Replaces the old credentials persistently — after a reboot the device
- * reconnects to this network automatically.
+ * Keeps the credentials in RAM and starts a single connection attempt
+ * without touching NVS. Once the link succeeds (GOT_IP) the network is
+ * added to the saved list; on failure the attempt is discarded (no
+ * retries) and nothing is stored, so a wrong password leaves no record
+ * behind.
  *
  * @param[in] ssid     Network name (1..32 chars, must not be empty).
  * @param[in] password Password (up to 63 chars; empty string for open network).
  * @return ESP_OK on success, ESP_ERR_INVALID_ARG on bad input.
  */
-esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password);
+esp_err_t wifi_manager_connect_new(const char *ssid, const char *password);
 
 /**
  * @brief Get the credentials currently stored in NVS.
@@ -104,8 +111,9 @@ const wifi_cred_t *wifi_manager_cred_get(int idx);
  * @brief Connect using the idx-th saved credential.
  *
  * Loads the saved SSID/password as the active credentials and starts a
- * fresh connection attempt. On failure the device keeps retrying
- * (see CONFIG_WIFI_MAX_RETRY); the UI can show wifi_info.last_reason.
+ * fresh connection attempt. On failure the device keeps retrying that
+ * network (see CONFIG_WIFI_MAX_RETRY) and then falls back to the other
+ * saved networks in order; the UI can show wifi_info.last_reason.
  *
  * @param[in] idx  Index into the saved list.
  * @return ESP_OK if the attempt was started, ESP_ERR_INVALID_ARG if idx

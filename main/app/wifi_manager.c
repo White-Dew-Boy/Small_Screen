@@ -20,6 +20,7 @@ static const char *TAG = "wifi_manager";
 
 #define NVS_NAMESPACE  "wifi"
 #define NVS_KEY_CREDS  "creds"
+#define NVS_KEY_LAST   "last" /* SSID of the last successfully connected network */
 
 /* Persisted credential list: count + up to WIFI_MAX_SAVED_CREDS entries. */
 typedef struct {
@@ -41,6 +42,22 @@ static wifi_info_t s_info = {
 };
 static int s_retry_cnt = 0;
 static bool s_auto_reconnect = true;
+
+/* Fallback rotation across saved networks: after WIFI_MAX_RETRY failures
+ * on one network the manager tries the next saved one (in list order),
+ * starting each sweep from the last network that connected successfully.
+ * s_attempted counts how many distinct networks this sweep has tried
+ * (the first candidate counts as 1). */
+static int s_candidate_idx = 0;
+static int s_attempted = 1;
+
+/* An attempt started from the Nearby WiFi page with credentials that are
+ * NOT yet in the saved list: they live in RAM only until the connection
+ * succeeds (GOT_IP), at which point they are persisted to NVS. A failure
+ * discards them without saving. */
+static bool s_pending_save = false;
+static char s_pending_ssid[33];
+static char s_pending_pass[65];
 
 /* Set while we initiate a disconnect ourselves (network switch, scan,
  * manual disconnect). The DISCONNECTED handler then treats the reason as
@@ -69,8 +86,43 @@ static void set_state(wifi_state_t st)
     xSemaphoreGive(s_lock);
 }
 
-/* Load the saved credential list from NVS. On success the first entry
- * (if any) becomes the active credentials for auto-connect. */
+/* Load the SSID that last connected successfully ("" when none saved). */
+static esp_err_t last_ssid_load(char *buf, size_t cap)
+{
+    nvs_handle_t h;
+    esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    size_t len = cap;
+    ret = nvs_get_str(h, NVS_KEY_LAST, buf, &len);
+    nvs_close(h);
+    if (ret != ESP_OK) {
+        buf[0] = '\0';
+    }
+    return ret;
+}
+
+/* Persist the SSID of the network that just connected successfully. */
+static esp_err_t last_ssid_store(const char *ssid)
+{
+    nvs_handle_t h;
+    esp_err_t ret = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ret = nvs_set_str(h, NVS_KEY_LAST, ssid);
+    if (ret == ESP_OK) {
+        ret = nvs_commit(h);
+    }
+    nvs_close(h);
+    return ret;
+}
+
+/* Load the saved credential list from NVS. The active credentials for
+ * auto-connect are taken from the last successfully connected network
+ * (persisted by last_ssid_store), falling back to the first list entry
+ * when that network is no longer saved or was never recorded. */
 static esp_err_t creds_load(void)
 {
     nvs_handle_t h;
@@ -94,9 +146,22 @@ static esp_err_t creds_load(void)
     }
 
     if (s_creds.count > 0) {
-        strlcpy(s_ssid, s_creds.list[0].ssid, sizeof(s_ssid));
-        strlcpy(s_pass, s_creds.list[0].pass, sizeof(s_pass));
+        /* Prefer the last-connected network; fall back to list[0] */
+        int start = 0;
+        char last[33] = {0};
+        if (last_ssid_load(last, sizeof(last)) == ESP_OK && last[0] != '\0') {
+            for (int i = 0; i < s_creds.count; i++) {
+                if (strcmp(s_creds.list[i].ssid, last) == 0) {
+                    start = i;
+                    break;
+                }
+            }
+        }
+        strlcpy(s_ssid, s_creds.list[start].ssid, sizeof(s_ssid));
+        strlcpy(s_pass, s_creds.list[start].pass, sizeof(s_pass));
         s_has_creds = true;
+        s_candidate_idx = start;
+        s_attempted = 1;
     }
     return ESP_OK;
 }
@@ -172,6 +237,54 @@ static esp_err_t creds_apply_to_wifi(void)
     return esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
 }
 
+/* Try the next saved network after the current one failed WIFI_MAX_RETRY
+ * times. Advances the fallback sweep (in list order), applies the new
+ * credentials and starts a fresh connect. Returns false when every saved
+ * network of this sweep has already been tried. Only call from the
+ * DISCONNECTED handler, where esp_wifi_set_config() is allowed. */
+static bool creds_advance(void)
+{
+    int next_idx = -1;
+    int attempted = 0;
+    int total = 0;
+
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_creds.count > 0) {
+        if (s_candidate_idx < 0 || s_candidate_idx >= s_creds.count) {
+            s_candidate_idx = 0;
+        }
+        if (s_attempted < s_creds.count) {
+            next_idx = (s_candidate_idx + 1) % s_creds.count;
+            s_candidate_idx = next_idx;
+            s_attempted++;
+            attempted = s_attempted;
+            total = s_creds.count;
+            strlcpy(s_ssid, s_creds.list[next_idx].ssid, sizeof(s_ssid));
+            strlcpy(s_pass, s_creds.list[next_idx].pass, sizeof(s_pass));
+            s_has_creds = true;
+        }
+    }
+    xSemaphoreGive(s_lock);
+
+    if (next_idx < 0) {
+        return false;
+    }
+
+    s_retry_cnt = 0;
+    ESP_LOGI(TAG, "Trying next saved network \"%s\" (%d/%d)", s_ssid,
+             attempted, total);
+    if (creds_apply_to_wifi() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to apply credentials for \"%s\"", s_ssid);
+        return false;
+    }
+    set_state(WIFI_STATE_CONNECTING);
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_info.last_reason = 0; /* clear the previous network's failure */
+    xSemaphoreGive(s_lock);
+    esp_wifi_connect();
+    return true;
+}
+
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
 {
@@ -226,17 +339,43 @@ static void event_handler(void *arg, esp_event_base_t event_base,
             s_retry_cnt = 0;
             set_state(WIFI_STATE_CONNECTING);
             esp_wifi_connect();
-        } else if (s_retry_cnt < WIFI_MAX_RETRY) {
-            s_retry_cnt++;
-            xSemaphoreTake(s_lock, portMAX_DELAY);
-            s_info.reconnect_cnt++;
-            xSemaphoreGive(s_lock);
-            set_state(WIFI_STATE_CONNECTING);
-            ESP_LOGI(TAG, "Reconnect attempt %d/%d", s_retry_cnt, WIFI_MAX_RETRY);
-            esp_wifi_connect();
         } else {
-            set_state(WIFI_STATE_DISCONNECTED);
-            ESP_LOGW(TAG, "Giving up after %d retries", s_retry_cnt);
+            /* Unsaved Nearby-WiFi attempts get a single try (no retries);
+             * normal saved-network connects keep WIFI_MAX_RETRY retries
+             * before falling back to the next saved network. */
+            const int retry_limit = s_pending_save ? 0 : WIFI_MAX_RETRY;
+            if (s_retry_cnt < retry_limit) {
+                s_retry_cnt++;
+                xSemaphoreTake(s_lock, portMAX_DELAY);
+                s_info.reconnect_cnt++;
+                xSemaphoreGive(s_lock);
+                set_state(WIFI_STATE_CONNECTING);
+                ESP_LOGI(TAG, "Reconnect attempt %d/%d", s_retry_cnt,
+                         retry_limit);
+                esp_wifi_connect();
+            } else {
+                /* Give up on this network. An unsaved attempt (Nearby WiFi
+                 * page) is discarded — it is not persisted and does not
+                 * fall back to saved networks, so the UI can show the
+                 * failure and let the user re-enter the password. Only
+                 * normal saved-network connects advance to the next saved
+                 * network here. */
+                ESP_LOGW(TAG, "Giving up on \"%s\" after %d retries", s_ssid,
+                         s_retry_cnt);
+                if (s_pending_save) {
+                    s_pending_save = false;
+                    s_pending_ssid[0] = '\0';
+                    s_pending_pass[0] = '\0';
+                    s_has_creds = false;
+                    s_ssid[0] = '\0';
+                    s_pass[0] = '\0';
+                    set_state(WIFI_STATE_DISCONNECTED);
+                    ESP_LOGW(TAG, "New network failed — not saved");
+                } else if (!creds_advance()) {
+                    set_state(WIFI_STATE_DISCONNECTED);
+                    ESP_LOGW(TAG, "All saved networks failed — waiting for user");
+                }
+            }
         }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_SCAN_DONE) {
         /* Copy the results out of the wifi lib before they are freed. */
@@ -292,6 +431,40 @@ static void event_handler(void *arg, esp_event_base_t event_base,
          * esp_wifi_sta_get_ap_info(). */
         xSemaphoreGive(s_lock);
         ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
+
+        /* A network entered on the Nearby WiFi page is only persisted NOW
+         * that the connection succeeded; a failed attempt never reaches
+         * this point and leaves no record behind. */
+        if (s_pending_save && strcmp(s_ssid, s_pending_ssid) == 0) {
+            ESP_LOGI(TAG, "Connection OK — saving new network \"%s\"", s_ssid);
+            esp_err_t sret = creds_update(s_pending_ssid, s_pending_pass);
+            if (sret != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to save new network: %s",
+                         esp_err_to_name(sret));
+            }
+        }
+        s_pending_save = false;
+        s_pending_ssid[0] = '\0';
+        s_pending_pass[0] = '\0';
+
+        /* Remember this network as the last successful one (the first
+         * auto-connect candidate after a reboot) and restart the fallback
+         * sweep from it for the next outage. */
+        esp_err_t lret = last_ssid_store(s_ssid);
+        if (lret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to store last network: %s",
+                     esp_err_to_name(lret));
+        }
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        s_candidate_idx = 0;
+        for (int i = 0; i < s_creds.count; i++) {
+            if (strcmp(s_creds.list[i].ssid, s_ssid) == 0) {
+                s_candidate_idx = i;
+                break;
+            }
+        }
+        s_attempted = 1;
+        xSemaphoreGive(s_lock);
     }
 }
 
@@ -357,7 +530,7 @@ esp_err_t wifi_manager_init(void)
     return ESP_OK;
 }
 
-esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
+esp_err_t wifi_manager_connect_new(const char *ssid, const char *password)
 {
     if (ssid == NULL || strlen(ssid) == 0 || strlen(ssid) > 32) {
         ESP_LOGE(TAG, "Invalid SSID");
@@ -368,8 +541,24 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_LOGI(TAG, "Saving credentials for \"%s\"", ssid);
-    ESP_RETURN_ON_ERROR(creds_update(ssid, password), TAG, "NVS save failed");
+    ESP_LOGI(TAG, "Trying network \"%s\" (saved only on success)", ssid);
+
+    /* Keep the credentials in RAM as "pending save": the GOT_IP handler
+     * writes them to NVS once the connection succeeds. A failure discards
+     * them without leaving a record. */
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_pending_save = true;
+    strlcpy(s_pending_ssid, ssid, sizeof(s_pending_ssid));
+    strlcpy(s_pending_pass, password, sizeof(s_pending_pass));
+    s_candidate_idx = 0;
+    for (int i = 0; i < s_creds.count; i++) {
+        if (strcmp(s_creds.list[i].ssid, ssid) == 0) {
+            s_candidate_idx = i;
+            break;
+        }
+    }
+    s_attempted = 1;
+    xSemaphoreGive(s_lock);
 
     /* Mirror the new credentials as active */
     strlcpy(s_ssid, ssid, sizeof(s_ssid));
@@ -384,9 +573,15 @@ esp_err_t wifi_manager_set_credentials(const char *ssid, const char *password)
 
     /* Already connected to this exact network: keep the link. Calling
      * esp_wifi_connect() on a connected STA fails (ESP_ERR_WIFI_CONN) and
-     * the CONNECTING state would never be resolved by an event. */
+     * the CONNECTING state would never be resolved by an event. A network
+     * we are connected to was already saved, so the pending flag is moot. */
     if (info.state == WIFI_STATE_CONNECTED && strcmp(info.ssid, ssid) == 0) {
         ESP_LOGI(TAG, "Already connected to \"%s\", keeping connection", ssid);
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        s_pending_save = false;
+        s_pending_ssid[0] = '\0';
+        s_pending_pass[0] = '\0';
+        xSemaphoreGive(s_lock);
         return ESP_OK;
     }
 
@@ -461,6 +656,11 @@ esp_err_t wifi_manager_connect_saved(int idx)
         return ESP_ERR_INVALID_ARG;
     }
 
+    /* A manual connect to a saved network supersedes an unsaved attempt */
+    s_pending_save = false;
+    s_pending_ssid[0] = '\0';
+    s_pending_pass[0] = '\0';
+
     ESP_LOGI(TAG, "Connecting to saved network \"%s\"", cred->ssid);
     strlcpy(s_ssid, cred->ssid, sizeof(s_ssid));
     strlcpy(s_pass, cred->pass, sizeof(s_pass));
@@ -470,6 +670,9 @@ esp_err_t wifi_manager_connect_saved(int idx)
     s_retry_cnt = 0;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     s_info.last_reason = 0; /* clear any previous failure */
+    /* The fallback sweep restarts from the network the user chose */
+    s_candidate_idx = idx;
+    s_attempted = 1;
     xSemaphoreGive(s_lock);
 
     wifi_info_t info;
@@ -539,6 +742,16 @@ esp_err_t wifi_manager_forget(int idx)
         s_creds.list[i] = s_creds.list[i + 1];
     }
     s_creds.count--;
+    /* Re-anchor the fallback sweep on the (possibly changed) list */
+    s_candidate_idx = 0;
+    s_attempted = 1;
+    /* If the removed network is the one an unsaved attempt is testing,
+     * abandon that attempt too. */
+    if (s_pending_save && strcmp(s_pending_ssid, removed_ssid) == 0) {
+        s_pending_save = false;
+        s_pending_ssid[0] = '\0';
+        s_pending_pass[0] = '\0';
+    }
     xSemaphoreGive(s_lock);
 
     ESP_LOGI(TAG, "Forgetting \"%s\" (was active: %d)", removed_ssid,
@@ -547,6 +760,14 @@ esp_err_t wifi_manager_forget(int idx)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to persist forget: %s", esp_err_to_name(ret));
         return ret;
+    }
+
+    /* If the forgotten network was the one remembered as "last connected",
+     * clear that pointer so the next boot starts from the list order. */
+    char last[33] = {0};
+    if (last_ssid_load(last, sizeof(last)) == ESP_OK &&
+        last[0] != '\0' && strcmp(last, removed_ssid) == 0) {
+        last_ssid_store("");
     }
 
     if (was_active) {
@@ -608,6 +829,11 @@ esp_err_t wifi_manager_reconnect(void)
 
 esp_err_t wifi_manager_disconnect(void)
 {
+    /* A manual disconnect cancels an unsaved (pending) attempt too */
+    s_pending_save = false;
+    s_pending_ssid[0] = '\0';
+    s_pending_pass[0] = '\0';
+
     s_auto_reconnect = false;
     set_state(WIFI_STATE_DISCONNECTED);
     s_manual_switch = true; /* initiated by us, not a failure */
