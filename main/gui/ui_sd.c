@@ -1,5 +1,6 @@
 #include "ui_sd.h"
 #include "lvgl.h"
+#include "audio_player.h"
 #include "sd_card.h"
 #include "upload_server.h"
 #include "wifi_manager.h"
@@ -137,10 +138,20 @@ static void sd_poll_timer_cb(lv_timer_t *timer)
          * a half-present card). A later re-insertion is caught by the
          * probe branch below. */
         if (!sd_card_is_present()) {
-            sd_card_deinit();
+            if (audio_player_is_active()) {
+                /* The player still holds a file open on this volume:
+                 * unmounting would pull the FATFS structures out from under
+                 * it. Stop playback and let a later tick unmount (the player
+                 * closes its file within ~50 ms). */
+                audio_player_stop();
+            } else {
+                sd_card_deinit();
+            }
         }
-    } else if (sd_card_probe()) {
-        /* A card appeared: try to mount it. */
+    } else if (!audio_player_is_active() && sd_card_probe()) {
+        /* A card appeared: try to mount it. Never while the player is
+         * active — the probe adds/removes an SPI device on the bus the
+         * player is reading from. */
         sd_card_init();
     }
 
@@ -170,13 +181,15 @@ static void sd_poll_timer_cb(lv_timer_t *timer)
 }
 
 /* Fast LVGL timer: executes pending SD file I/O for the upload/download
- * server. Deliberately NOT gated on page visibility — an in-flight upload
- * keeps progressing even if the user switches pages. Runs on the LVGL
- * task, which is the only task allowed to touch the shared SPI bus. */
+ * server and refills the audio player's ring buffer. Both are SD operations,
+ * which must run on the LVGL task (shared SPI bus). Deliberately NOT gated on
+ * page visibility — an in-flight upload and background playback keep going
+ * even if the user switches pages. */
 static void upload_poll_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
     upload_server_poll();
+    audio_player_poll();
 }
 
 lv_obj_t *ui_sd_create(void)

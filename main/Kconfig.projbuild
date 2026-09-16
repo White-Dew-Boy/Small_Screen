@@ -115,3 +115,22 @@ menu "Upload Server Configuration"
             before any data is written to the card.
 
 endmenu
+
+menu "Audio Player Configuration"
+
+    config AUDIO_PLAYER_VOLUME
+        int "WAV playback volume (percent of full scale)"
+        default 40
+        range 0 100
+        help
+            Software volume applied while streaming WAV data to the
+            MAX98357A. The amp module defaults to 9 dB gain, so a
+            full-scale file at 100% will clip on a small speaker; 40%
+            is a safe default.
+            Set to 0 to mute the stream while everything else keeps
+            running: that is the quickest way to tell signal-related
+            noise (distortion) from the amp/rail noise floor.
+            The UI volume control (audio page) will override this at
+            runtime once it exists.
+
+endmenu

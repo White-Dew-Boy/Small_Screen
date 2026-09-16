@@ -29,6 +29,7 @@ idf_component_register(
         "drv/i2c_bus.c"
         "drv/key.c"
         "drv/lcd_driver.c"
+        "drv/max98357a.c"
         "drv/power.c"
         "drv/rgb_led.c"
         "drv/sd_card.c"
@@ -42,6 +43,7 @@ idf_component_register(
         "app/pc_perf_src.c"
         "app/upload_server.c"
         "app/sd_file.c"
+        "app/audio_player.c"
     INCLUDE_DIRS 
         "."
         "gui"
@@ -51,6 +53,7 @@ idf_component_register(
     REQUIRES 
         esp_lcd 
         esp_driver_ledc 
+        esp_driver_i2s
         esp_driver_uart
         driver 
         fatfs 

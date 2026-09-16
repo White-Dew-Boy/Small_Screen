@@ -2,10 +2,13 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include "lvgl.h"
 
+#include "audio_player.h"
+#include "esp_attr.h"
 #include "sd_card.h"
 #include "sd_file.h"
 
@@ -14,7 +17,13 @@
  * the UI). Navigation is on-demand: tap a folder to enter it, ".." or the
  * Back button to go up. All SD I/O runs on the LVGL task (the SD card
  * shares the SPI bus with the LCD), so refresh() blocks briefly while it
- * reads one directory — acceptable for a single level. */
+ * reads one directory — acceptable for a single level.
+ *
+ * Tapping a .wav row starts/stops playback (app/audio_player.c). Playback
+ * is steered from this same task and keeps running while the user browses
+ * on, so the information bar and the Delete guard consult
+ * audio_player_get_status(). The bottom row also carries Vol- / Vol+ so the
+ * playback level can be changed at runtime. */
 
 #define FILE_MAX_ENTRIES 96 /* dir entries cached per level (~7 KB BSS) */
 
@@ -24,13 +33,18 @@ static lv_obj_t *s_path_label;
 static lv_obj_t *s_list;
 static lv_obj_t *s_info_label;
 static lv_obj_t *s_delete_btn;
+static lv_obj_t *s_vol_label;
 
 /* Callback to leave the page (set by main.c, invoked from the LVGL thread) */
 static void (*s_back_cb)(void) = NULL;
 
 /* Browser state */
 static char s_cur_path[256] = SD_MOUNT_PATH; /* current directory */
-static sd_file_entry_t s_entries[FILE_MAX_ENTRIES];
+/* ~7 KB of directory cache, kept in PSRAM: internal RAM is the scarcest
+ * resource on this board (httpd / TLS / BLE compete for it, and running out of
+ * it is what makes the upload server fail to start while audio plays). Only
+ * the LVGL task ever touches this array. */
+static EXT_RAM_BSS_ATTR sd_file_entry_t s_entries[FILE_MAX_ENTRIES];
 static size_t s_entry_count = 0;
 static int s_sel = -1; /* selected file index in s_entries, -1 = none */
 
@@ -65,6 +79,14 @@ static void format_size(uint32_t bytes, char *out, size_t cap)
 }
 
 static void item_click_cb(lv_event_t *e);
+
+/* Tapping a .wav row toggles playback; the player itself validates that the
+ * file really is 16-bit PCM (anything else is reported in the info bar). */
+static bool has_wav_ext(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    return dot != NULL && strcasecmp(dot, ".wav") == 0;
+}
 
 /* Build one list row. idx is the index into s_entries; -1 is the virtual
  * ".." (up one level) row. */
@@ -113,6 +135,32 @@ static void item_click_cb(lv_event_t *e)
     lv_obj_clear_state(s_delete_btn, LV_STATE_DISABLED);
     char size_str[16];
     format_size(ent->size, size_str, sizeof(size_str));
+
+    /* WAV: tap toggles playback of this file. Tapping the file that is
+     * already playing stops it; tapping another one switches tracks. */
+    if (has_wav_ext(ent->name)) {
+        audio_player_status_t st;
+        audio_player_get_status(&st);
+
+        if (st.state == AUDIO_PLAYER_PLAYING &&
+            strcmp(st.file, ent->name) == 0) {
+            audio_player_stop();
+            lv_label_set_text_fmt(s_info_label, "Stopped  %s", ent->name);
+        } else {
+            char path[256 + SD_FILE_NAME_MAX + 2];
+            snprintf(path, sizeof(path), "%s/%s", s_cur_path, ent->name);
+
+            esp_err_t ret = audio_player_play(path);
+            if (ret == ESP_OK) {
+                lv_label_set_text_fmt(s_info_label, "Playing  %s", ent->name);
+            } else {
+                lv_label_set_text_fmt(s_info_label, "Cannot play %s (%s)",
+                                      ent->name, esp_err_to_name(ret));
+            }
+        }
+        return;
+    }
+
     lv_label_set_text_fmt(s_info_label, "%s  (%s)", ent->name, size_str);
 }
 
@@ -123,6 +171,17 @@ static void do_delete_selected(void)
         return;
     }
     const char *name = s_entries[s_sel].name;
+
+    /* Never unlink a file the player still has open: its FATFS handle would
+     * outlive the clusters. The player is stopped from the UI instead. */
+    audio_player_status_t st;
+    audio_player_get_status(&st);
+    if (st.state == AUDIO_PLAYER_PLAYING && strcmp(st.file, name) == 0) {
+        ui_files_refresh(); /* also drops the selection */
+        lv_label_set_text_fmt(s_info_label, "Stop playback before deleting %s",
+                              name);
+        return;
+    }
 
     char path[256 + SD_FILE_NAME_MAX + 2];
     snprintf(path, sizeof(path), "%s/%s", s_cur_path, name);
@@ -169,6 +228,50 @@ static void back_click_cb(lv_event_t *e)
     if (s_back_cb != NULL) {
         s_back_cb();
     }
+}
+
+/* Runtime volume control (10% steps). It lives on this page because this is
+ * where playback is started, and because being able to sweep the level
+ * without rebuilding is what separates signal-correlated noise (overdrive /
+ * clipping on a tiny speaker) from the amplifier's own noise floor. The
+ * dedicated audio page (step 2) will replace these two buttons. */
+static void refresh_vol_label(void)
+{
+    audio_player_status_t st;
+    if (audio_player_get_status(&st) == ESP_OK) {
+        lv_label_set_text_fmt(s_vol_label, "Vol %u%%", (unsigned)st.volume);
+    }
+}
+
+static void vol_step(int delta)
+{
+    audio_player_status_t st;
+    if (audio_player_get_status(&st) != ESP_OK) {
+        return;
+    }
+
+    int vol = (int)st.volume + delta;
+    if (vol < 0) {
+        vol = 0;
+    } else if (vol > 100) {
+        vol = 100;
+    }
+
+    audio_player_set_volume((uint8_t)vol);
+    refresh_vol_label();
+    lv_label_set_text_fmt(s_info_label, "Volume %d%%", vol);
+}
+
+static void vol_down_cb(lv_event_t *e)
+{
+    (void)e;
+    vol_step(-10);
+}
+
+static void vol_up_cb(lv_event_t *e)
+{
+    (void)e;
+    vol_step(10);
 }
 
 void ui_files_refresh(void)
@@ -248,10 +351,37 @@ lv_obj_t *ui_files_create(void)
     lv_obj_set_style_text_font(s_info_label, &lv_font_montserrat_12, 0);
     lv_obj_align(s_info_label, LV_ALIGN_TOP_LEFT, 12, 178);
 
-    /* Delete (disabled until a file is selected) + Back buttons */
+    /* Current playback volume, right-aligned in the path row */
+    s_vol_label = lv_label_create(s_scr);
+    lv_obj_set_style_text_color(s_vol_label, lv_color_hex(0x8A94A0), 0);
+    lv_obj_set_style_text_font(s_vol_label, &lv_font_montserrat_12, 0);
+    lv_obj_align(s_vol_label, LV_ALIGN_TOP_RIGHT, -12, 26);
+
+    /* Bottom row: Vol- / Vol+ / Delete (disabled until a file is selected) /
+     * Back. */
+    lv_obj_t *vol_down = lv_btn_create(s_scr);
+    lv_obj_set_size(vol_down, 56, 34);
+    lv_obj_align(vol_down, LV_ALIGN_BOTTOM_LEFT, 12, -8);
+    lv_obj_set_style_bg_color(vol_down, lv_color_hex(0x2A323A), 0);
+    lv_obj_set_style_text_color(vol_down, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *vol_down_label = lv_label_create(vol_down);
+    lv_label_set_text(vol_down_label, "Vol-");
+    lv_obj_center(vol_down_label);
+    lv_obj_add_event_cb(vol_down, vol_down_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *vol_up = lv_btn_create(s_scr);
+    lv_obj_set_size(vol_up, 56, 34);
+    lv_obj_align(vol_up, LV_ALIGN_BOTTOM_LEFT, 72, -8);
+    lv_obj_set_style_bg_color(vol_up, lv_color_hex(0x2A323A), 0);
+    lv_obj_set_style_text_color(vol_up, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *vol_up_label = lv_label_create(vol_up);
+    lv_label_set_text(vol_up_label, "Vol+");
+    lv_obj_center(vol_up_label);
+    lv_obj_add_event_cb(vol_up, vol_up_cb, LV_EVENT_CLICKED, NULL);
+
     s_delete_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(s_delete_btn, 100, 34);
-    lv_obj_align(s_delete_btn, LV_ALIGN_BOTTOM_LEFT, 12, -8);
+    lv_obj_set_size(s_delete_btn, 84, 34);
+    lv_obj_align(s_delete_btn, LV_ALIGN_BOTTOM_LEFT, 132, -8);
     lv_obj_set_style_bg_color(s_delete_btn, lv_color_hex(0x7A3238), 0);
     lv_obj_set_style_bg_color(s_delete_btn, lv_color_hex(0x2A323A),
                               LV_STATE_DISABLED);
@@ -263,7 +393,7 @@ lv_obj_t *ui_files_create(void)
     lv_obj_add_state(s_delete_btn, LV_STATE_DISABLED);
 
     lv_obj_t *back_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(back_btn, 100, 34);
+    lv_obj_set_size(back_btn, 80, 34);
     lv_obj_align(back_btn, LV_ALIGN_BOTTOM_RIGHT, -12, -8);
     lv_obj_set_style_bg_color(back_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(back_btn, lv_color_hex(0xFFFFFF), 0);
@@ -271,6 +401,8 @@ lv_obj_t *ui_files_create(void)
     lv_label_set_text(back_label, "Back");
     lv_obj_center(back_label);
     lv_obj_add_event_cb(back_btn, back_click_cb, LV_EVENT_CLICKED, NULL);
+
+    refresh_vol_label();
 
     return s_scr;
 }

@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+#include "esp_attr.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -63,7 +64,13 @@ typedef struct {
     FILE *fp;
 } upload_io_t;
 
-static upload_io_t s_io;
+/* ~8.4 KB of SD staging buffers, placed in PSRAM on purpose: internal RAM is
+ * the scarcest resource on this board (the httpd task, TLS and BLE all need
+ * it, and its exhaustion is what makes httpd_start() fail with
+ * ESP_ERR_HTTPD_TASK while audio is playing). Only the CPU touches this
+ * struct, never DMA, and the mailbox queue + ack semaphore already order the
+ * handoff between the httpd task and the LVGL task. */
+static EXT_RAM_BSS_ATTR upload_io_t s_io;
 static QueueHandle_t s_q = NULL;
 static SemaphoreHandle_t s_ack = NULL;
 
@@ -282,8 +289,9 @@ static void html_escape(const char *src, char *dst, size_t cap)
 static void do_list(void)
 {
     /* Runs on the LVGL task; keep the entry array static, not on the
-     * stack (64 * ~72 B would eat 4.6 KB of the LVGL task stack). */
-    static sd_file_entry_t entries[UPLOAD_LIST_MAX_ENTRIES];
+     * stack (64 * ~72 B would eat 4.6 KB of the LVGL task stack) — and in
+     * PSRAM, so it does not consume internal RAM either. */
+    static EXT_RAM_BSS_ATTR sd_file_entry_t entries[UPLOAD_LIST_MAX_ENTRIES];
     size_t count = 0;
     size_t cap = sizeof(s_io.list);
     size_t o = 0;

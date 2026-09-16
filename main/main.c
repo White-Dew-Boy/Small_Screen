@@ -19,6 +19,7 @@
 #include "jy901s.h"
 #include "ble_perf.h"
 #include "pc_perf_mqtt.h"
+#include "audio_player.h"
 #include "ui_sensor.h"
 #include "ui_accel.h"
 #include "ui_gyro.h"
@@ -566,6 +567,12 @@ void app_main(void)
         ESP_LOGW(TAG, "SD card not available (%s), continuing without SD",
                  esp_err_to_name(sd_ret));
     }
+
+    // SD-card WAV player (SD -> I2S speaker). Takes no I2S/DMA/heap
+    // resources here: the amp rail, the I2S channel and the ring buffer are
+    // set up when playback starts. Its SD reads are pumped from the LVGL
+    // task by audio_player_poll() (see the 10 ms timer in ui_sd.c).
+    ESP_ERROR_CHECK(audio_player_init());
 
     // LCD (uses the SPI bus created by sd_card_init())
     ESP_ERROR_CHECK(lcd_init());
