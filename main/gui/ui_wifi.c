@@ -9,6 +9,12 @@ static lv_obj_t *ip_label;
 static lv_obj_t *rssi_label;
 static lv_obj_t *retry_label;
 static lv_obj_t *reason_label;
+static lv_obj_t *s_radio_btn;
+static lv_obj_t *s_radio_label;
+static lv_obj_t *s_nearby_btn;
+/* Last radio state drawn: the toggle and the Nearby WiFi button are only
+ * touched when it changes, so the page does not redraw for nothing. */
+static bool s_radio_drawn = true;
 
 /* Callbacks to open the saved/nearby WiFi pages (set by main.c, invoked
  * from the LVGL thread). */
@@ -41,11 +47,20 @@ static void nearby_click_cb(lv_event_t *e)
     }
 }
 
-/* Disconnect from the current AP and stop auto-reconnect. */
-static void disconnect_click_cb(lv_event_t *e)
+/* Toggle the WiFi radio (RF) itself, not just the link:
+ * off = esp_wifi_stop() (RF powered down, scanning disabled),
+ * on  = esp_wifi_start() and the manager reconnects with the saved
+ *       credentials. */
+static void radio_click_cb(lv_event_t *e)
 {
     (void)e;
-    wifi_manager_disconnect();
+
+    const bool turn_on = !wifi_manager_radio_is_on();
+    const esp_err_t ret = wifi_manager_set_radio(turn_on);
+    if (ret != ESP_OK) {
+        lv_label_set_text_fmt(reason_label, "Radio %s failed: %s",
+                              turn_on ? "on" : "off", esp_err_to_name(ret));
+    }
 }
 
 /* Convert RSSI [dBm] to a signal strength bar string.
@@ -83,6 +98,10 @@ static void wifi_display_timer_cb(lv_timer_t *timer)
         lv_label_set_text(state_label, "Status: Disconnected");
         lv_obj_set_style_text_color(state_label, lv_color_hex(0xF44336), 0);
         break;
+    case WIFI_STATE_OFF:
+        lv_label_set_text(state_label, "Status: Radio OFF");
+        lv_obj_set_style_text_color(state_label, lv_color_hex(0x9E9E9E), 0);
+        break;
     default:
         lv_label_set_text(state_label, "Status: Idle");
         lv_obj_set_style_text_color(state_label, lv_color_hex(0x9E9E9E), 0);
@@ -109,6 +128,23 @@ static void wifi_display_timer_cb(lv_timer_t *timer)
 
     lv_label_set_text_fmt(retry_label, "Auto reconnect: %lu time(s)",
                           (unsigned long)info.reconnect_cnt);
+
+    /* Radio toggle label/colour and the Nearby WiFi button availability.
+     * Scanning is disabled while the RF is off, so the button is greyed
+     * out — only repainted when the radio state actually changes. */
+    const bool radio_on = wifi_manager_radio_is_on();
+    if (radio_on != s_radio_drawn) {
+        s_radio_drawn = radio_on;
+        lv_label_set_text(s_radio_label, radio_on ? "WiFi Off" : "WiFi On");
+        lv_obj_set_style_bg_color(s_radio_btn,
+                                  lv_color_hex(radio_on ? 0xC62828 : 0x2E7D32),
+                                  0);
+        if (radio_on) {
+            lv_obj_clear_state(s_nearby_btn, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(s_nearby_btn, LV_STATE_DISABLED);
+        }
+    }
 }
 
 /**
@@ -171,26 +207,31 @@ lv_obj_t *ui_wifi_create(void)
     lv_obj_center(saved_label);
     lv_obj_add_event_cb(saved_btn, saved_click_cb, LV_EVENT_CLICKED, NULL);
 
-    /* Disconnect (red, middle) */
-    lv_obj_t *disc_btn = lv_btn_create(scr);
-    lv_obj_set_size(disc_btn, 93, 40);
-    lv_obj_align(disc_btn, LV_ALIGN_TOP_LEFT, 113, 182);
-    lv_obj_set_style_bg_color(disc_btn, lv_color_hex(0xC62828), 0);
-    lv_obj_set_style_text_color(disc_btn, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_t *disc_label = lv_label_create(disc_btn);
-    lv_label_set_text(disc_label, "Disconnect");
-    lv_obj_center(disc_label);
-    lv_obj_add_event_cb(disc_btn, disconnect_click_cb, LV_EVENT_CLICKED, NULL);
+    /* Radio (RF) toggle (red = tap to switch WiFi off) */
+    s_radio_btn = lv_btn_create(scr);
+    lv_obj_set_size(s_radio_btn, 93, 40);
+    lv_obj_align(s_radio_btn, LV_ALIGN_TOP_LEFT, 113, 182);
+    lv_obj_set_style_bg_color(s_radio_btn, lv_color_hex(0xC62828), 0);
+    lv_obj_set_style_text_color(s_radio_btn, lv_color_hex(0xFFFFFF), 0);
+    s_radio_label = lv_label_create(s_radio_btn);
+    lv_label_set_text(s_radio_label, "WiFi Off");
+    lv_obj_center(s_radio_label);
+    lv_obj_add_event_cb(s_radio_btn, radio_click_cb, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *nearby_btn = lv_btn_create(scr);
-    lv_obj_set_size(nearby_btn, 93, 40);
-    lv_obj_align(nearby_btn, LV_ALIGN_TOP_LEFT, 214, 182);
-    lv_obj_set_style_bg_color(nearby_btn, lv_color_hex(0x2E7D32), 0);
-    lv_obj_set_style_text_color(nearby_btn, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_t *nearby_label = lv_label_create(nearby_btn);
+    /* Nearby WiFi: scanning needs the radio, so it is disabled while off */
+    s_nearby_btn = lv_btn_create(scr);
+    lv_obj_set_size(s_nearby_btn, 93, 40);
+    lv_obj_align(s_nearby_btn, LV_ALIGN_TOP_LEFT, 214, 182);
+    lv_obj_set_style_bg_color(s_nearby_btn, lv_color_hex(0x2E7D32), 0);
+    lv_obj_set_style_text_color(s_nearby_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_color(s_nearby_btn, lv_color_hex(0x2A323A),
+                              LV_STATE_DISABLED);
+    lv_obj_set_style_text_color(s_nearby_btn, lv_color_hex(0x6E767E),
+                                LV_STATE_DISABLED);
+    lv_obj_t *nearby_label = lv_label_create(s_nearby_btn);
     lv_label_set_text(nearby_label, "Nearby WiFi");
     lv_obj_center(nearby_label);
-    lv_obj_add_event_cb(nearby_btn, nearby_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_nearby_btn, nearby_click_cb, LV_EVENT_CLICKED, NULL);
 
     /* Refresh every 500 ms from the LVGL thread */
     lv_timer_create(wifi_display_timer_cb, 500, NULL);

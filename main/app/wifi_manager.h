@@ -37,6 +37,7 @@ typedef enum {
     WIFI_STATE_DISCONNECTED, /* Init done, not connected */
     WIFI_STATE_CONNECTING,   /* Connecting / reconnecting */
     WIFI_STATE_CONNECTED,    /* Got IP address */
+    WIFI_STATE_OFF,          /* Radio (RF) stopped by the user */
 } wifi_state_t;
 
 typedef struct {
@@ -151,9 +152,38 @@ esp_err_t wifi_manager_reconnect(void);
 
 /**
  * @brief Disconnect from the AP and stop auto-reconnect.
+ *
+ * Only the link is torn down: the radio keeps running, so scanning and a
+ * later reconnect still work. Use wifi_manager_set_radio(false) to switch
+ * the RF itself off.
  * @return ESP_OK on success.
  */
 esp_err_t wifi_manager_disconnect(void);
+
+/**
+ * @brief Turn the WiFi radio (RF) on or off.
+ *
+ * Off: cancel any pending attempt, disconnect, disable auto-reconnect and
+ *      stop the driver with esp_wifi_stop() — the RF is powered down (lower
+ *      current) and scanning is unavailable (wifi_manager_scan_start()
+ *      returns ESP_ERR_WIFI_NOT_STARTED, the Nearby WiFi page is disabled).
+ *      The stack and the saved credentials stay in place, so powering it
+ *      back on is cheap; the state reads as WIFI_STATE_OFF.
+ * On:  esp_wifi_start(); the STA_START handler reconnects with the saved
+ *      credentials and auto-reconnect is re-armed. With no saved
+ *      credentials the manager stays disconnected until one is saved.
+ *
+ * Idempotent. Not persisted: after a reboot the radio is on again.
+ * @param[in] on true = radio on, false = radio off.
+ * @return ESP_OK, or the esp_wifi_stop()/esp_wifi_start() error.
+ */
+esp_err_t wifi_manager_set_radio(bool on);
+
+/**
+ * @brief True while the radio is running (independent of the link state).
+ *        False right after wifi_manager_set_radio(false).
+ */
+bool wifi_manager_radio_is_on(void);
 
 /**
  * @brief Get the current WiFi status snapshot.

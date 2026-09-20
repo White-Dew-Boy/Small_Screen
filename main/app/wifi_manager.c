@@ -5,6 +5,7 @@
 
 #include "esp_check.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -42,6 +43,10 @@ static wifi_info_t s_info = {
 };
 static int s_retry_cnt = 0;
 static bool s_auto_reconnect = true;
+/* Radio (RF) state. false after wifi_manager_set_radio(false): the driver is
+ * stopped, so scanning is unavailable and no connect attempt is allowed until
+ * it is switched back on. Starts true (wifi_manager_init() starts the STA). */
+static bool s_radio_on = true;
 
 /* Fallback rotation across saved networks: after WIFI_MAX_RETRY failures
  * on one network the manager tries the next saved one (in list order),
@@ -325,8 +330,10 @@ static void event_handler(void *arg, esp_event_base_t event_base,
          * disconnected the STA, and reconnecting mid-scan would abort the
          * scan or restrict it to the current channel. wifi_manager_scan_start()
          * / the SCAN_DONE handler resumes the connection afterwards. */
-        if (!s_auto_reconnect || s_scan_in_progress) {
-            set_state(WIFI_STATE_DISCONNECTED);
+        if (!s_auto_reconnect || s_scan_in_progress || !s_radio_on) {
+            /* The radio being off is not a disconnect: keep WIFI_STATE_OFF so
+             * the UI can tell "RF switched off" from "link dropped". */
+            set_state(s_radio_on ? WIFI_STATE_DISCONNECTED : WIFI_STATE_OFF);
             return;
         }
 
@@ -541,6 +548,10 @@ esp_err_t wifi_manager_connect_new(const char *ssid, const char *password)
         return ESP_ERR_INVALID_ARG;
     }
 
+    /* Connecting implies the radio must run: bring it back if the user
+     * switched it off (the Wi-Fi page toggle). */
+    ESP_RETURN_ON_ERROR(wifi_manager_set_radio(true), TAG, "radio on failed");
+
     ESP_LOGI(TAG, "Trying network \"%s\" (saved only on success)", ssid);
 
     /* Keep the credentials in RAM as "pending save": the GOT_IP handler
@@ -655,6 +666,9 @@ esp_err_t wifi_manager_connect_saved(int idx)
     if (cred == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    /* Connecting implies the radio must run (see connect_new). */
+    ESP_RETURN_ON_ERROR(wifi_manager_set_radio(true), TAG, "radio on failed");
 
     /* A manual connect to a saved network supersedes an unsaved attempt */
     s_pending_save = false;
@@ -821,6 +835,9 @@ esp_err_t wifi_manager_reconnect(void)
         return ESP_OK;
     }
 
+    /* A reconnect request implies the radio must run. */
+    ESP_RETURN_ON_ERROR(wifi_manager_set_radio(true), TAG, "radio on failed");
+
     s_auto_reconnect = true;
     s_retry_cnt = 0;
     set_state(WIFI_STATE_CONNECTING);
@@ -838,6 +855,76 @@ esp_err_t wifi_manager_disconnect(void)
     set_state(WIFI_STATE_DISCONNECTED);
     s_manual_switch = true; /* initiated by us, not a failure */
     return esp_wifi_disconnect();
+}
+
+bool wifi_manager_radio_is_on(void)
+{
+    return s_radio_on;
+}
+
+esp_err_t wifi_manager_set_radio(bool on)
+{
+    if (on == s_radio_on) {
+        return ESP_OK; /* already in the requested state */
+    }
+
+    const uint32_t heap_before = esp_get_free_internal_heap_size();
+
+    if (!on) {
+        /* Same as a manual disconnect: drop any unsaved attempt and make sure
+         * the DISCONNECTED event that esp_wifi_stop() may raise is treated as
+         * intentional (no auto-reconnect while the RF is off). */
+        s_pending_save = false;
+        s_pending_ssid[0] = '\0';
+        s_pending_pass[0] = '\0';
+        s_auto_reconnect = false;
+        s_retry_cnt = 0;
+        s_manual_switch = true;
+        s_radio_on = false;
+        /* esp_wifi_stop() aborts a running scan without a SCAN_DONE event. */
+        s_scan_in_progress = false;
+        set_state(WIFI_STATE_OFF);
+
+        esp_err_t ret = esp_wifi_disconnect();
+        if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_CONNECT) {
+            ESP_LOGW(TAG, "disconnect before radio off: %s", esp_err_to_name(ret));
+        }
+
+        ret = esp_wifi_stop();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "esp_wifi_stop failed: %s", esp_err_to_name(ret));
+            s_radio_on = true; /* the RF is apparently still up */
+            set_state(WIFI_STATE_DISCONNECTED);
+            return ret;
+        }
+
+        ESP_LOGI(TAG, "WiFi radio OFF (RF stopped, stack kept): "
+                      "internal heap %lu -> %lu KB",
+                 (unsigned long)(heap_before / 1024),
+                 (unsigned long)(esp_get_free_internal_heap_size() / 1024));
+        return ESP_OK;
+    }
+
+    esp_err_t ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    s_radio_on = true;
+    s_retry_cnt = 0;
+    s_auto_reconnect = true;
+    s_manual_switch = false;
+    /* WIFI_EVENT_STA_START reconnects when credentials are saved; without any
+     * the manager just sits disconnected until the UI saves one. */
+    if (!s_has_creds) {
+        set_state(WIFI_STATE_DISCONNECTED);
+    }
+
+    ESP_LOGI(TAG, "WiFi radio ON: internal heap %lu -> %lu KB",
+             (unsigned long)(heap_before / 1024),
+             (unsigned long)(esp_get_free_internal_heap_size() / 1024));
+    return ESP_OK;
 }
 
 void wifi_manager_get_info(wifi_info_t *info)
@@ -903,6 +990,14 @@ const char *wifi_manager_reason_to_str(int16_t reason)
 
 esp_err_t wifi_manager_scan_start(void)
 {
+    /* Scanning needs the driver running. With the radio switched off the
+     * feature is disabled on purpose (the Nearby WiFi page is greyed out) —
+     * we do NOT silently power the RF back on for a scan. */
+    if (!s_radio_on) {
+        ESP_LOGW(TAG, "scan refused: WiFi radio is off");
+        return ESP_ERR_WIFI_NOT_STARTED;
+    }
+
     if (s_scan_in_progress) {
         return ESP_OK; /* already scanning */
     }

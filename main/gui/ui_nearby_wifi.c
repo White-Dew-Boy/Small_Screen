@@ -263,6 +263,13 @@ static void scan_poll_cb(lv_timer_t *timer)
     if (s_mode != NF_SCANNING) {
         return;
     }
+    if (!wifi_manager_radio_is_on()) {
+        /* The RF was switched off while this page was scanning: no SCAN_DONE
+         * will arrive, so leave the scanning state here. */
+        s_mode = NF_LIST;
+        lv_label_set_text(s_scan_label, "WiFi is off");
+        return;
+    }
     if (wifi_manager_scan_in_progress()) {
         return;
     }
@@ -273,6 +280,17 @@ static void scan_poll_cb(lv_timer_t *timer)
 
 void ui_nearby_wifi_start_scan(void)
 {
+    /* Scanning needs the radio running. The WiFi page greys this page's entry
+     * out while the RF is off; this is the belt-and-braces path (the entry
+     * could also be reached before the state is repainted). */
+    if (!wifi_manager_radio_is_on()) {
+        s_mode = NF_LIST;
+        lv_obj_clean(s_ap_list);
+        lv_label_set_text(s_scan_label, "WiFi is off");
+        set_view_list();
+        return;
+    }
+
     if (wifi_manager_scan_in_progress()) {
         return;
     }
