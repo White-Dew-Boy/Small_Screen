@@ -1015,6 +1015,13 @@ CONFIG_UPLOAD_MAX_SIZE_MB=64
 # end of Upload Server Configuration
 
 #
+# Audio Player Configuration
+#
+# default:
+CONFIG_AUDIO_PLAYER_VOLUME=40
+# end of Audio Player Configuration
+
+#
 # Compiler options
 #
 # default:
