@@ -4,7 +4,8 @@
 /**
  * @brief Create the SD card management page. Shows whether an SD card is
  *        connected, card info (name, capacity), a button to open the file
- *        browser and a button that toggles the HTTP upload/download server
+ *        browser, a button to open the audio player and a button that toggles
+ *        the HTTP upload/download server
  *        (files land flat in /sdcard/esp32_files, duplicates numbered).
  *
  *        A 1 s LVGL timer probes/mounts the card while the page is visible
@@ -29,3 +30,9 @@ void ui_sd_set_browse_cb(void (*cb)(void));
  *        from the LVGL thread.
  */
 void ui_sd_set_gallery_cb(void (*cb)(void));
+
+/**
+ * @brief Register a callback invoked when the "Audio" button is pressed. The
+ *        callback must switch to the audio player page from the LVGL thread.
+ */
+void ui_sd_set_player_cb(void (*cb)(void));

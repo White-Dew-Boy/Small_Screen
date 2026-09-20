@@ -39,6 +39,7 @@
 #include "ui_sd.h"
 #include "ui_files.h"
 #include "ui_gallery.h"
+#include "ui_player.h"
 #include "ui_sysinfo.h"
 #include "ui_pc_perf.h"
 #include "ui_pc_perf_cfg.h"
@@ -65,6 +66,7 @@ static lv_obj_t *scr_led_custom;
 static lv_obj_t *scr_sd;
 static lv_obj_t *scr_sd_files;
 static lv_obj_t *scr_gallery;
+static lv_obj_t *scr_player;
 static lv_obj_t *scr_sysinfo;
 static lv_obj_t *scr_sysinfo_cpu;
 static lv_obj_t *scr_sysinfo_stack;
@@ -93,6 +95,7 @@ typedef enum {
     SWITCH_SD,
     SWITCH_SD_FILES,
     SWITCH_GALLERY,
+    SWITCH_PLAYER,
     SWITCH_SYSINFO,
     SWITCH_SYSINFO_CPU,
     SWITCH_SYSINFO_STACK,
@@ -267,6 +270,20 @@ static void gallery_open(void)
 /* The slideshow has no UI controls: leave it with KEY3 (Home menu) or
  * KEY2 (page cycle) — no close callback needed. */
 
+/* Called from the SD status page "Audio Player" button (LVGL thread) */
+static void player_open(void)
+{
+    ui_player_refresh(); /* re-scan the wav files before showing */
+    s_switch_req = SWITCH_PLAYER;
+}
+
+/* Called from the audio player Back button (LVGL thread) */
+static void player_close(void)
+{
+    s_cur_page = 4; /* back to SD status page */
+    s_switch_req = SWITCH_SD;
+}
+
 /* Called from the home menu: open the selected page (LVGL thread) */
 static void home_open_page(int page)
 {
@@ -380,6 +397,8 @@ static void lvgl_task(void *arg)
                 lv_scr_load(scr_sysinfo_about);
             } else if (req == SWITCH_GALLERY) {
                 lv_scr_load(scr_gallery);
+            } else if (req == SWITCH_PLAYER) {
+                lv_scr_load(scr_player);
             }
 
             /* All pages are landscape now (320x240), so the resolution no
@@ -621,6 +640,7 @@ void app_main(void)
     scr_sd = ui_sd_create();
     scr_sd_files = ui_files_create();
     scr_gallery = ui_gallery_create();
+    scr_player = ui_player_create();
     scr_sysinfo = ui_sysinfo_create();
     scr_sysinfo_cpu = ui_sysinfo_cpu_create();
     scr_sysinfo_stack = ui_sysinfo_stack_create();
@@ -688,6 +708,9 @@ void app_main(void)
     ui_files_set_back_cb(sd_files_close);
     // SD status page "Slide Show" -> picture gallery (KEY3/KEY2 to leave)
     ui_sd_set_gallery_cb(gallery_open);
+    // SD status page "Audio Player" -> wav list/player page; back -> SD page
+    ui_sd_set_player_cb(player_open);
+    ui_player_set_back_cb(player_close);
 
     ESP_LOGI(TAG, "Free heap: internal=%lu KB, PSRAM=%lu KB",
              (unsigned long)esp_get_free_internal_heap_size() / 1024,

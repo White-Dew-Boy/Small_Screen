@@ -22,9 +22,11 @@ static lv_obj_t *s_server_label;
 static lv_obj_t *s_upload_btn;
 static lv_obj_t *s_upload_btn_label;
 
-/* Callbacks to open the file browser / slideshow (set by main.c) */
+/* Callbacks to open the file browser / slideshow / audio player (set by
+ * main.c) */
 static void (*s_browse_cb)(void) = NULL;
 static void (*s_gallery_cb)(void) = NULL;
+static void (*s_player_cb)(void) = NULL;
 
 void ui_sd_set_browse_cb(void (*cb)(void))
 {
@@ -34,6 +36,11 @@ void ui_sd_set_browse_cb(void (*cb)(void))
 void ui_sd_set_gallery_cb(void (*cb)(void))
 {
     s_gallery_cb = cb;
+}
+
+void ui_sd_set_player_cb(void (*cb)(void))
+{
+    s_player_cb = cb;
 }
 
 static void browse_click_cb(lv_event_t *e)
@@ -49,6 +56,14 @@ static void gallery_click_cb(lv_event_t *e)
     (void)e;
     if (s_gallery_cb != NULL) {
         s_gallery_cb();
+    }
+}
+
+static void player_click_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_player_cb != NULL) {
+        s_player_cb();
     }
 }
 
@@ -225,11 +240,12 @@ lv_obj_t *ui_sd_create(void)
     lv_obj_set_style_text_font(s_server_label, &lv_font_montserrat_12, 0);
     lv_obj_align(s_server_label, LV_ALIGN_TOP_MID, 0, 76);
 
-    /* Open the SD picture slideshow (the gallery itself stays portrait;
-     * main.c switches back before loading it). */
+    /* Two rows of two buttons: (Slide Show | Audio Player) then
+     * (Browse Files | Start Upload). All four are 144x52 with an 8 px gutter
+     * and a 16 px row gap, centred in the free area below the status text. */
     lv_obj_t *gallery_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(gallery_btn, 296, 42);
-    lv_obj_align(gallery_btn, LV_ALIGN_TOP_MID, 0, 104);
+    lv_obj_set_size(gallery_btn, 144, 52);
+    lv_obj_align(gallery_btn, LV_ALIGN_TOP_LEFT, 12, 105);
     lv_obj_set_style_bg_color(gallery_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(gallery_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *gallery_label = lv_label_create(gallery_btn);
@@ -237,10 +253,23 @@ lv_obj_t *ui_sd_create(void)
     lv_obj_center(gallery_label);
     lv_obj_add_event_cb(gallery_btn, gallery_click_cb, LV_EVENT_CLICKED, NULL);
 
+    /* Open the audio player: flat list of the .wav files in the upload dir,
+     * tap to play. No progress bar there on purpose — redrawing while audio
+     * plays costs SD time and shows up as crackle. */
+    lv_obj_t *audio_btn = lv_btn_create(s_scr);
+    lv_obj_set_size(audio_btn, 144, 52);
+    lv_obj_align(audio_btn, LV_ALIGN_TOP_RIGHT, -12, 105);
+    lv_obj_set_style_bg_color(audio_btn, lv_color_hex(0x2A323A), 0);
+    lv_obj_set_style_text_color(audio_btn, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t *audio_label = lv_label_create(audio_btn);
+    lv_label_set_text(audio_label, "Audio Player");
+    lv_obj_center(audio_label);
+    lv_obj_add_event_cb(audio_btn, player_click_cb, LV_EVENT_CLICKED, NULL);
+
     /* Open the file browser (shows "No SD card" inside if none mounted) */
     lv_obj_t *browse_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(browse_btn, 144, 44);
-    lv_obj_align(browse_btn, LV_ALIGN_TOP_LEFT, 12, 164);
+    lv_obj_set_size(browse_btn, 144, 52);
+    lv_obj_align(browse_btn, LV_ALIGN_TOP_LEFT, 12, 173);
     lv_obj_set_style_bg_color(browse_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(browse_btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_t *browse_label = lv_label_create(browse_btn);
@@ -250,8 +279,8 @@ lv_obj_t *ui_sd_create(void)
 
     /* Toggle the HTTP upload/download server */
     s_upload_btn = lv_btn_create(s_scr);
-    lv_obj_set_size(s_upload_btn, 144, 44);
-    lv_obj_align(s_upload_btn, LV_ALIGN_TOP_RIGHT, -12, 164);
+    lv_obj_set_size(s_upload_btn, 144, 52);
+    lv_obj_align(s_upload_btn, LV_ALIGN_TOP_RIGHT, -12, 173);
     lv_obj_set_style_bg_color(s_upload_btn, lv_color_hex(0x2A323A), 0);
     lv_obj_set_style_text_color(s_upload_btn, lv_color_hex(0xFFFFFF), 0);
     s_upload_btn_label = lv_label_create(s_upload_btn);

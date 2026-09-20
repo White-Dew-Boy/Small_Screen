@@ -22,6 +22,7 @@ idf_component_register(
         "gui/ui_sd.c"
         "gui/ui_files.c"
         "gui/ui_gallery.c"
+        "gui/ui_player.c"
         "gui/ui_sysinfo.c"
         "gui/ui_pc_perf.c"
         "gui/ui_pc_perf_cfg.c"
