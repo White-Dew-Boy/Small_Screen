@@ -164,7 +164,7 @@ sdkconfig.defaults        工程默认配置（16MB Flash、OCT PSRAM 80M、USB-
 ```bash
 idf.py set-target esp32s3      # 首次
 idf.py build
-idf.py -p COM5 flash monitor   # 日志在 USB-Serial-JTAG 上
+idf.py -p COMx flash monitor   # 日志在 USB-Serial-JTAG 上（换成你的串口）
 ```
 
 注意事项：
@@ -184,7 +184,7 @@ idf.py -p COM5 flash monitor   # 日志在 USB-Serial-JTAG 上
 | 选项 | 默认 | 说明 |
 |---|---|---|
 | `WIFI_MAX_RETRY` | 10 | 单个网络的重连次数，之后轮换到下一个已保存网络 |
-| `MQTT_BROKER_URI` / `_USERNAME` / `_PASSWORD` | wss://broker.example.com:443/mqtt | 可在 UI 里改并存 NVS |
+| `MQTT_BROKER_URI` / `_USERNAME` / `_PASSWORD` | 空（不预置任何 broker/账号） | 在 MQTT 配置页填写并保存到 NVS；NVS 的值优先于这里的编译期默认值 |
 | `MQTT_TELEMETRY_INTERVAL` | 5 | 温湿度发布间隔（秒） |
 | `MQTT_PC_PERF_TOPIC` | pc/performance | PC 性能订阅主题；**留空＝关闭 MQTT 这条 PC-Perf 路径**（自动退回 BLE） |
 | `TIME_TZ` / `TIME_NTP_SERVER` | CST-8 / pool.ntp.org | Home 页时钟 |

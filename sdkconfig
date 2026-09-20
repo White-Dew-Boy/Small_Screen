@@ -983,7 +983,7 @@ CONFIG_WIFI_MAX_RETRY=10
 # MQTT Configuration
 #
 # default:
-CONFIG_MQTT_BROKER_URI="wss://broker.example.com:443/mqtt"
+CONFIG_MQTT_BROKER_URI=""
 # default:
 CONFIG_MQTT_USERNAME=""
 # default:

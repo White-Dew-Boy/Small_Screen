@@ -17,7 +17,7 @@ menu "MQTT Configuration"
 
     config MQTT_BROKER_URI
         string "MQTT broker URI"
-        default "wss://broker.example.com:443/mqtt"
+        default ""
         help
             Full MQTT URI, e.g.:
               mqtt://192.168.1.100:1883        (plain TCP, LAN)
@@ -26,6 +26,9 @@ menu "MQTT Configuration"
             TLS verification uses the ESP-IDF certificate bundle
             (trusts public CAs). Must match CONFIG_MQTT_USERNAME /
             CONFIG_MQTT_PASSWORD on the broker.
+            No broker is compiled in by default: leave this empty and set the
+            broker at runtime on the MQTT config page (stored in NVS; the NVS
+            value overrides whatever is set here).
 
     config MQTT_USERNAME
         string "MQTT username"
@@ -39,7 +42,8 @@ menu "MQTT Configuration"
         default ""
         help
             Password for broker authentication. Leave empty for
-            anonymous access.
+            anonymous access. No credential is compiled in by default:
+            set it at runtime on the MQTT config page (stored in NVS).
 
     config MQTT_TELEMETRY_INTERVAL
         int "Telemetry publish interval (seconds)"
