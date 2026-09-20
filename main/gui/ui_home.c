@@ -3,18 +3,17 @@
 #include "time_manager.h"
 #include <time.h>
 
-/* Menu entries: name and accent color */
-static const struct {
-    const char *name;
-    uint32_t color;
-} s_entries[] = {
-    { "Sensor",   0x1565C0 }, /* blue */
-    { "WiFi",     0x1565C0 },
-    { "MQTT",     0x1565C0 },
-    { "LED",      0x1565C0 },
-    { "SD Card",  0x1565C0 },
-    { "System",   0x1565C0 },
-    { "PC Performance", 0x1565C0 },
+/* Home menu entries, in layout order (indexes 0..6 are referenced by the
+ * add_entry_btn() calls at the bottom). Names only: every button uses the
+ * same accent colour, applied in add_entry_btn(). */
+static const char *s_entries[] = {
+    "Sensor",
+    "WiFi",
+    "MQTT",
+    "LED",
+    "SD Card",
+    "System",
+    "PC Performance"
 };
 
 /* Callback to open a page (set by main.c, invoked from the LVGL thread) */
@@ -78,12 +77,12 @@ static void add_entry_btn(lv_obj_t *scr, int idx, lv_coord_t x,
     lv_obj_t *btn = lv_btn_create(scr);
     lv_obj_set_size(btn, w, ENTRY_H);
     lv_obj_align(btn, LV_ALIGN_TOP_LEFT, x, y);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(s_entries[idx].color), 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x1565C0), 0);
     lv_obj_set_style_text_color(btn, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_radius(btn, 8, 0);
 
     lv_obj_t *lbl = lv_label_create(btn);
-    lv_label_set_text(lbl, s_entries[idx].name);
+    lv_label_set_text(lbl, s_entries[idx]);
     lv_obj_center(lbl);
 
     lv_obj_add_event_cb(btn, entry_click_cb, LV_EVENT_CLICKED,
