@@ -1,5 +1,6 @@
 #include "audio_player.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -41,8 +42,41 @@ _Static_assert((RING_FRAMES_MAX & (RING_FRAMES_MAX - 1)) == 0 &&
  * never rose above empty and 11 s of playback produced 486 ring starvations
  * and 214 DMA underruns — i.e. constant, audible crackle. Allowing several
  * reads per tick lets the ring saturate (~93 ms of cushion) so the DMA stays
- * fed even when a tick takes 30+ ms. */
-#define PRODUCE_BUDGET_FRAMES 2048
+ * fed even when a tick takes 30+ ms.
+ *
+ * Field measurement (166 s of 44.1 kHz stereo, 2026-xx): 9828 ring
+ * starvations (= one every 17 ms, i.e. the ring sat at ~0) and 3198 DMA
+ * underruns. The budget was the limiter: 2048 frames/tick is 46 ms of audio,
+ * while one tick costs ~40 ms (10 ms loop + 2 x 5-12 ms SD read + a partial
+ * LCD flush), so the ring could never grow past ~46 ms — below the point
+ * where it can absorb a hiccup. The budget must therefore be able to fill the
+ * *whole* ring (4096 frames), not half of it. */
+#define PRODUCE_BUDGET_FRAMES 4096
+
+/* ---- SD read-ahead FIFO (PSRAM) ------------------------------------------
+ * The producer runs on the LVGL task and an SD read costs 5-12 ms per 4 KB
+ * here (SPI bus shared with the LCD, FATFS sector spans). Feeding 44.1 kHz
+ * stereo needs 176 KB/s, so 20-50% of the LVGL task's time would go into SD
+ * reads, and every one of those milliseconds is a millisecond the ring is not
+ * being refilled. This FIFO decouples the two: the ring is always topped up
+ * from PSRAM (a memcpy, microseconds), and the SD card is only touched when
+ * the FIFO drops below the low-water mark, then in much larger blocks. SD
+ * latency can no longer reach the DMA.
+ *
+ * PSRAM only — never internal RAM. Set to 0 to fall back to direct SD reads
+ * (the previous behaviour). Must be a power of two. */
+#define AUDIO_RA_BYTES      (128 * 1024) /* 0 = disabled; 0.74 s @44.1k stereo */
+#define AUDIO_RA_CHUNK      (16 * 1024)  /* largest single SD read (~90 ms audio;
+                                          * keeps one blocking read well inside
+                                          * the 93 ms ring cushion) */
+#define AUDIO_RA_LOW_WATER  (AUDIO_RA_BYTES / 2)
+
+/* Temporary 1 Hz streaming telemetry (poll rate, production rate, ring level,
+ * SD throughput/latency, starvation counters). Off now that the stream is
+ * healthy: the read-ahead decided it — poll ~21/s, prod ~100%, ring 46-92 ms,
+ * sd ~1.1 MB/s, and 0 underruns / 0 starvations for a whole track. Set to 1 to
+ * bring the line back while debugging. */
+#define AUDIO_TELEMETRY 0
 #define DRAIN_WAIT_MS     30   /* let the DMA play the tail before teardown */
 
 #define AUDIO_TASK_STACK  3072
@@ -130,9 +164,31 @@ static int16_t s_stage[STAGE_FRAMES * 2];
  * touched by the LVGL task, so PSRAM is fine for it. */
 static int16_t *s_scratch; /* READ_FRAMES * 2 samples */
 
+/* ---- SD read-ahead FIFO (PSRAM). NULL = direct-SD fallback mode ---- */
+static uint8_t *s_ra;
+static uint32_t s_ra_head; /* raw PCM bytes written (monotonic) */
+static uint32_t s_ra_tail; /* raw PCM bytes consumed (monotonic) */
+static bool     s_ra_eof;
+
+/* ---- 1 Hz streaming telemetry (diagnostics, see AUDIO_TELEMETRY) ---- */
+#if AUDIO_TELEMETRY
+static uint32_t s_tel_polls;
+static uint32_t s_tel_frames;
+static uint32_t s_tel_reads;
+static uint32_t s_tel_read_bytes;
+static uint32_t s_tel_read_us;
+static uint32_t s_tel_read_max_us;
+static uint32_t s_tel_ring_min;
+static uint32_t s_tel_ring_max;
+static uint32_t s_tel_starve0;
+static uint32_t s_tel_under0;
+static int64_t  s_tel_t0;
+#endif
+
 static esp_err_t player_start(const char *path);
 static void request_stop(void);
 static void player_teardown(void);
+static void producer_refill(uint32_t budget);
 
 /*============================================================================
  * Helpers
@@ -163,10 +219,10 @@ static inline int16_t apply_volume(int16_t s, uint8_t vol)
     return (int16_t)(((int32_t)s * (int32_t)vol) / 100);
 }
 
-/* Expand the raw PCM in s_scratch into 16-bit stereo frames and append them
+/* Expand the raw PCM in `src` into 16-bit stereo frames and append them
  * to the ring (wrapping included). Mono is duplicated into both slots so the
  * MAX98357A plays it whichever slot it samples. */
-static void ring_push_convert(uint32_t frames)
+static void ring_push_convert(const int16_t *src, uint32_t frames)
 {
     const uint8_t vol = s_volume;
     uint32_t idx = s_head & s_ring_mask;
@@ -175,11 +231,11 @@ static void ring_push_convert(uint32_t frames)
         int16_t l;
         int16_t r;
         if (s_channels == 1) {
-            l = apply_volume(s_scratch[i], vol);
+            l = apply_volume(src[i], vol);
             r = l;
         } else {
-            l = apply_volume(s_scratch[2 * i], vol);
-            r = apply_volume(s_scratch[2 * i + 1], vol);
+            l = apply_volume(src[2 * i], vol);
+            r = apply_volume(src[2 * i + 1], vol);
         }
         s_ring[2 * idx]     = l;
         s_ring[2 * idx + 1] = r;
@@ -372,12 +428,195 @@ static void audio_task(void *arg)
 }
 
 /*============================================================================
+ * SD read-ahead FIFO + 1 Hz telemetry (see AUDIO_RA_BYTES / AUDIO_TELEMETRY)
+ *============================================================================*/
+static inline uint32_t ra_avail(void)
+{
+    return s_ra_head - s_ra_tail;
+}
+
+#if AUDIO_TELEMETRY
+static void telemetry_reset(void)
+{
+    s_tel_polls = 0;
+    s_tel_frames = 0;
+    s_tel_reads = 0;
+    s_tel_read_bytes = 0;
+    s_tel_read_us = 0;
+    s_tel_read_max_us = 0;
+    s_tel_ring_min = UINT32_MAX;
+    s_tel_ring_max = 0;
+    s_tel_starve0 = s_starve_events;
+    s_tel_under0 = s_underrun_events;
+    s_tel_t0 = esp_timer_get_time();
+}
+
+static void telemetry_note_poll(uint32_t ring_frames)
+{
+    s_tel_polls++;
+    if (ring_frames < s_tel_ring_min) {
+        s_tel_ring_min = ring_frames;
+    }
+    if (ring_frames > s_tel_ring_max) {
+        s_tel_ring_max = ring_frames;
+    }
+}
+
+static void telemetry_note_read(uint32_t us, size_t bytes)
+{
+    if (bytes == 0) {
+        return;
+    }
+    s_tel_reads++;
+    s_tel_read_bytes += (uint32_t)bytes;
+    s_tel_read_us += us;
+    if (us > s_tel_read_max_us) {
+        s_tel_read_max_us = us;
+    }
+}
+
+/* One line per second: how often the producer got to run, how much audio it
+ * produced versus real time, how deep the ring was, and what the SD card
+ * cost. If prod% stays below 100 the producer is the bottleneck; if poll/s is
+ * low the LVGL task never gets to run; if the SD numbers are large, that is
+ * where the time goes. */
+static void telemetry_report(void)
+{
+    const int64_t dt = esp_timer_get_time() - s_tel_t0;
+    if (dt < 1000000) {
+        return;
+    }
+
+    const uint32_t ms = (uint32_t)(dt / 1000);
+    const uint32_t rate = (s_rate != 0) ? s_rate : 1;
+    const uint32_t poll_hz = (uint32_t)(((uint64_t)s_tel_polls * 1000u) / ms);
+    const uint32_t prod_hz = (uint32_t)(((uint64_t)s_tel_frames * 1000u) / ms);
+    const uint32_t fill_pct = (uint32_t)(((uint64_t)prod_hz * 100u) / rate);
+    const uint32_t ring_ms_min = (uint32_t)(((uint64_t)s_tel_ring_min * 1000u) / rate);
+    const uint32_t ring_ms_max = (uint32_t)(((uint64_t)s_tel_ring_max * 1000u) / rate);
+    const uint32_t sd_kbps = (uint32_t)((uint64_t)s_tel_read_bytes / ms);
+    const uint32_t read_avg = (s_tel_reads != 0) ? (s_tel_read_us / s_tel_reads) : 0;
+    const uint32_t ra_kb = (s_ra != NULL) ? (ra_avail() / 1024u) : 0;
+
+    ESP_LOGI(TAG,
+             "stream: poll %lu/s, prod %lu f/s (%lu%% of %lu Hz), ring %lu-%lu ms, "
+             "ra %lu KB, sd %lu kB/s in %lu reads (avg %lu us, max %lu us), "
+             "starve +%lu, under +%lu",
+             (unsigned long)poll_hz, (unsigned long)prod_hz,
+             (unsigned long)fill_pct, (unsigned long)rate,
+             (unsigned long)ring_ms_min, (unsigned long)ring_ms_max,
+             (unsigned long)ra_kb, (unsigned long)sd_kbps,
+             (unsigned long)s_tel_reads, (unsigned long)read_avg,
+             (unsigned long)s_tel_read_max_us,
+             (unsigned long)(s_starve_events - s_tel_starve0),
+             (unsigned long)(s_underrun_events - s_tel_under0));
+
+    telemetry_reset();
+}
+#else
+/* No-op stubs. The arguments are still "used" so the timestamps taken for
+ * telemetry do not turn into set-but-unused warnings. */
+#define telemetry_reset()         do { } while (0)
+#define telemetry_note_poll(f)    do { (void)(f); } while (0)
+#define telemetry_note_read(u, b) do { (void)(u); (void)(b); } while (0)
+#define telemetry_report()        do { } while (0)
+#endif /* AUDIO_TELEMETRY */
+
+static void ra_reset(void)
+{
+    s_ra_head = 0;
+    s_ra_tail = 0;
+    s_ra_eof = false;
+}
+
+/* Copy up to `want` bytes of raw PCM out of the FIFO (wrapping included). */
+static uint32_t ra_take(uint8_t *dst, uint32_t want)
+{
+    const uint32_t avail = ra_avail();
+    if (want > avail) {
+        want = avail;
+    }
+    const uint32_t pos = s_ra_tail & (AUDIO_RA_BYTES - 1);
+    uint32_t first = AUDIO_RA_BYTES - pos;
+    if (first > want) {
+        first = want;
+    }
+    memcpy(dst, s_ra + pos, first);
+    if (want > first) {
+        memcpy(dst + first, s_ra, want - first);
+    }
+    s_ra_tail += want;
+    return want;
+}
+
+/* One large SD read into the FIFO — at most one per poll, so a slow card
+ * delays a single LVGL iteration but never the I2S ring. */
+static void ra_fill(void)
+{
+    if (s_ra == NULL || s_ra_eof) {
+        return;
+    }
+
+    uint32_t space = AUDIO_RA_BYTES - ra_avail();
+    if (space == 0) {
+        return;
+    }
+    uint32_t want = (space < AUDIO_RA_CHUNK) ? space : AUDIO_RA_CHUNK;
+    if (s_data_remaining != DATA_UNKNOWN) {
+        if (s_data_remaining < want) {
+            want = s_data_remaining;
+        }
+        if (want == 0) {
+            s_ra_eof = true;
+            return;
+        }
+    }
+
+    const uint32_t pos = s_ra_head & (AUDIO_RA_BYTES - 1);
+    uint32_t first = AUDIO_RA_BYTES - pos;
+    if (first > want) {
+        first = want;
+    }
+
+    const int64_t t0 = esp_timer_get_time();
+    size_t got = fread(s_ra + pos, 1, first, s_fp);
+    if (got == first && want > first) {
+        got += fread(s_ra, 1, want - first, s_fp);
+    }
+    telemetry_note_read((uint32_t)(esp_timer_get_time() - t0), got);
+
+    if (got == 0) {
+        /* Same policy as the direct path: zero bytes while data is still
+         * expected means the card went away; a clean EOF is handled by
+         * `want == 0` above. */
+        if (s_data_remaining != DATA_UNKNOWN && s_data_remaining > 0) {
+            ESP_LOGE(TAG, "SD read failed with %lu bytes left",
+                     (unsigned long)s_data_remaining);
+            s_last_error = ESP_FAIL;
+            s_state = AUDIO_PLAYER_ERROR;
+        }
+        s_ra_eof = true;
+        return;
+    }
+
+    if (s_data_remaining != DATA_UNKNOWN) {
+        s_data_remaining -= (uint32_t)got;
+    }
+    s_ra_head += (uint32_t)got;
+    if (got < want) {
+        s_ra_eof = true; /* short read: end of file */
+    }
+}
+
+/*============================================================================
  * Producer (LVGL task): SD -> ring
  *============================================================================*/
-static void producer_refill(void)
+/* Direct mode (no PSRAM FIFO): read a small block from the SD card per step. */
+static void producer_refill_direct(uint32_t budget)
 {
-    uint32_t budget = PRODUCE_BUDGET_FRAMES;
     const uint32_t bytes_per_frame = PCM_BYTES_PER_SAMPLE * s_channels;
+
+    telemetry_note_poll(ring_used());
 
     while (budget > 0) {
         const uint32_t free_frames = s_ring_frames - ring_used();
@@ -397,8 +636,10 @@ static void producer_refill(void)
             return;
         }
 
+        const int64_t t_read = esp_timer_get_time();
         const size_t got =
             fread(s_scratch, 1, (size_t)want * bytes_per_frame, s_fp);
+        telemetry_note_read((uint32_t)(esp_timer_get_time() - t_read), got);
         const uint32_t frames = (uint32_t)(got / bytes_per_frame);
 
         if (frames == 0) {
@@ -418,8 +659,11 @@ static void producer_refill(void)
             s_data_remaining -= frames * bytes_per_frame;
         }
 
-        ring_push_convert(frames); /* s_scratch -> ring, volume applied */
+        ring_push_convert(s_scratch, frames); /* volume applied, then queued */
         s_frames_read += frames;
+#if AUDIO_TELEMETRY
+        s_tel_frames += frames;
+#endif
         xSemaphoreGive(s_ring_ready);
 
         budget = (frames >= budget) ? 0 : (budget - frames);
@@ -429,6 +673,85 @@ static void producer_refill(void)
             return;
         }
     }
+}
+
+/* FIFO mode: the ring is refilled from PSRAM; the SD card is touched at most
+ * once per poll and only when the FIFO runs low. This is what keeps the DMA
+ * fed when a single SD read takes longer than the whole DMA queue (21.8 ms). */
+static void producer_refill_fifo(uint32_t budget)
+{
+    const uint32_t bytes_per_frame = PCM_BYTES_PER_SAMPLE * s_channels;
+
+    telemetry_note_poll(ring_used());
+
+    /* 1) Keep the FIFO ahead of the ring (one big SD read per poll). */
+    if (ra_avail() < AUDIO_RA_LOW_WATER) {
+        ra_fill();
+    }
+
+    /* 2) Top the ring up from PSRAM: microseconds, never blocks on the card. */
+    while (budget > 0) {
+        const uint32_t free_frames = s_ring_frames - ring_used();
+        if (free_frames < MIN_FREE_TO_READ) {
+            return; /* ring is full enough */
+        }
+
+        uint32_t want = (free_frames > READ_FRAMES) ? READ_FRAMES : free_frames;
+        if (want > budget) {
+            want = budget;
+        }
+
+        const uint32_t got =
+            ra_take((uint8_t *)s_scratch, want * bytes_per_frame);
+        const uint32_t frames = got / bytes_per_frame;
+
+        if (frames == 0) {
+            if (s_ra_eof) {
+                s_eos = true;
+            }
+            return; /* FIFO empty and no more data coming */
+        }
+
+        ring_push_convert(s_scratch, frames); /* volume applied, then queued */
+        s_frames_read += frames;
+#if AUDIO_TELEMETRY
+        s_tel_frames += frames;
+#endif
+        xSemaphoreGive(s_ring_ready);
+
+        budget = (frames >= budget) ? 0 : (budget - frames);
+
+        if (frames < want) {
+            if (s_ra_eof) {
+                s_eos = true; /* FIFO drained and the file is finished */
+            }
+            return;
+        }
+    }
+}
+
+/* Called once per LVGL tick with the frames this tick is allowed to pull.
+ * `budget` is normally PRODUCE_BUDGET_FRAMES; the prefill passes the whole
+ * ring so a track starts with a full cushion. */
+static void producer_refill(uint32_t budget)
+{
+    if (s_ra != NULL) {
+        producer_refill_fifo(budget);
+    } else {
+        producer_refill_direct(budget);
+    }
+}
+
+/* Fill the ring *before* the I2S channel starts clocking samples out.
+ *
+ * Without this the DMA is enabled on an empty ring: it plays the 21.8 ms it
+ * can hold and then runs dry until the producer catches up, so every track
+ * opens with a burst of underruns. Prefilling hands the DMA the full ring
+ * (93 ms at 44.1 kHz) from the very first sample — the same cushion the
+ * just-in-time producer needs for the rest of the track. */
+static void ring_prefill(void)
+{
+    producer_refill(s_ring_frames);
 }
 
 /*============================================================================
@@ -478,6 +801,27 @@ static bool ring_alloc(void)
     return false;
 }
 
+/* Allocate the PSRAM read-ahead FIFO (once, kept for the whole run).
+ * Failure is not fatal: the producer then falls back to direct SD reads. */
+static void ra_alloc(void)
+{
+#if AUDIO_RA_BYTES > 0
+    if (s_ra != NULL) {
+        return;
+    }
+    s_ra = heap_caps_malloc(AUDIO_RA_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_ra == NULL) {
+        ESP_LOGW(TAG, "no %u KB PSRAM read-ahead: direct SD reads",
+                 (unsigned)(AUDIO_RA_BYTES / 1024));
+    } else {
+        ra_reset();
+        ESP_LOGI(TAG, "read-ahead: %u KB PSRAM, %u KB per SD read",
+                 (unsigned)(AUDIO_RA_BYTES / 1024),
+                 (unsigned)(AUDIO_RA_CHUNK / 1024));
+    }
+#endif
+}
+
 static esp_err_t player_start(const char *path)
 {
     wav_info_t w;
@@ -503,6 +847,7 @@ static esp_err_t player_start(const char *path)
         ret = ESP_ERR_NO_MEM;
         goto fail;
     }
+    ra_alloc();
     if (s_ring_ready == NULL) {
         s_ring_ready = xSemaphoreCreateBinary();
         if (s_ring_ready == NULL) {
@@ -513,27 +858,10 @@ static esp_err_t player_start(const char *path)
         }
     }
 
-    /* The amp supply rail belongs to the caller of the driver (see
-     * max98357a.h): switch it on before I2S comes up, and give the MAX98357A
-     * a moment to leave its shutdown state so the first frames are not lost
-     * (the DMA starts clocking out data as soon as I2S is enabled). */
-    ret = power_on(POWER_ID_AUDIO);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "amp power on failed: %s", esp_err_to_name(ret));
-        fclose(fp);
-        goto fail;
-    }
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    ret = max98357a_init(w.sample_rate);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2S init failed: %s", esp_err_to_name(ret));
-        power_off(POWER_ID_AUDIO);
-        fclose(fp);
-        goto fail;
-    }
-
-    /* Reset the streaming state before the consumer starts. */
+    /* Take ownership of the file and reset the streaming state *before* the
+     * prefill below: the producer runs on this task and needs the state to be
+     * consistent already. */
+    s_fp = fp;
     s_head = 0;
     s_tail = 0;
     s_stop_req = false;
@@ -549,6 +877,33 @@ static esp_err_t player_start(const char *path)
                          ? 0
                          : (w.data_bytes / (PCM_BYTES_PER_SAMPLE * w.channels));
     snprintf(s_file, sizeof(s_file), "%s", path_basename(path));
+    ra_reset();
+
+    /* Fill the ring while the DMA is still silent (see ring_prefill()). */
+    ring_prefill();
+    telemetry_reset();
+
+    /* The amp supply rail belongs to the caller of the driver (see
+     * max98357a.h): switch it on before I2S comes up, and give the MAX98357A
+     * a moment to leave its shutdown state so the first frames are not lost
+     * (the DMA starts clocking out data as soon as I2S is enabled). */
+    ret = power_on(POWER_ID_AUDIO);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "amp power on failed: %s", esp_err_to_name(ret));
+        fclose(fp);
+        s_fp = NULL;
+        goto fail;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    ret = max98357a_init(w.sample_rate);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "I2S init failed: %s", esp_err_to_name(ret));
+        power_off(POWER_ID_AUDIO);
+        fclose(fp);
+        s_fp = NULL;
+        goto fail;
+    }
 
     /* Claim "task alive" before it exists: it is only cleared once the task
      * has really stopped touching I2S, and poll() must not tear the channel
@@ -561,11 +916,11 @@ static esp_err_t player_start(const char *path)
         max98357a_deinit();
         power_off(POWER_ID_AUDIO);
         fclose(fp);
+        s_fp = NULL;
         ret = ESP_ERR_NO_MEM;
         goto fail;
     }
 
-    s_fp = fp; /* owned by the player from here on */
     s_phase = PH_PLAYING;
     s_state = AUDIO_PLAYER_PLAYING;
 
@@ -615,6 +970,7 @@ static void player_teardown(void)
     s_frames_read = 0; /* position resets; rate/duration keep the last track */
     s_head = 0;
     s_tail = 0;
+    ra_reset(); /* the FIFO itself stays allocated across tracks */
     s_phase = PH_IDLE;
     if (s_state == AUDIO_PLAYER_PLAYING) {
         s_state = AUDIO_PLAYER_IDLE;
@@ -774,7 +1130,8 @@ void audio_player_poll(void)
         return;
     }
 
-    producer_refill();
+    producer_refill(PRODUCE_BUDGET_FRAMES);
+    telemetry_report();
 
     if (s_eos && ring_used() == 0) {
         /* Everything has been handed to the DMA: give it DRAIN_WAIT_MS to
